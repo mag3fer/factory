@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>تجربة الميزان</title>
+<style>
+body { font-family: Tahoma, Arial; margin: 20px; background: #f4f6f9; }
+button, select { font-size: 18px; padding: 6px 14px; }
+#big { font: 700 64px Consolas, monospace; background: #111; color: #39ff14; padding: 6px 20px; border-radius: 8px; direction: ltr; text-align: center; margin: 12px 0; }
+#log { background: #fff; border: 1px solid #ccc; height: 320px; overflow: auto; direction: ltr; font: 14px Consolas, monospace; white-space: pre; padding: 8px; }
+#st { font-weight: 700; }
+</style></head>
+<body>
+<h2>تجربة قراءة الميزان (بدون حفظ)</h2>
+<div>
+  السرعة (Baud):
+  <select id="baud"><option>1200</option><option>2400</option><option>4800</option><option selected>9600</option><option>19200</option><option>38400</option><option>115200</option></select>
+  <button id="connect">توصيل الميزان</button>
+  <button id="disconnect">فصل</button>
+  <span id="st">غير متصل</span>
+</div>
+<div id="big">----</div>
+<div>البيانات الخام (آخر 200 سطر) — كل سطر زي ما الميزان بعته:</div>
+<div id="log"></div>
+<script>
+let port, reader, keepReading = false;
+const $ = id => document.getElementById(id);
+const log = t => { const l = $('log'); l.textContent = (t + '\n' + l.textContent).split('\n').slice(0, 200).join('\n'); };
+function show(line) {
+  const s = line.trim();
+  let v = null;
+  if (s.startsWith('=')) v = parseFloat(s.slice(1).split('').reverse().join(''));
+  else { const m = s.replace(/\s+/g, '').match(/[-+]?\d+(\.\d+)?/); if (m) v = parseFloat(m[0]); }
+  if (v !== null && !isNaN(v)) $('big').textContent = v.toFixed(3);
+}
+$('connect').onclick = async () => {
+  if (!('serial' in navigator)) { $('st').textContent = 'المتصفح مش بيدعم Web Serial (محتاج Chrome + عنوان آمن)'; return; }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: parseInt($('baud').value, 10) });
+    $('st').textContent = 'متصل على ' + $('baud').value;
+    keepReading = true;
+    const dec = new TextDecoder();
+    let buf = '', frames = 0, errors = 0;
+    // Non-fatal serial errors (framing/parity/overrun) end one reader; get a new one and keep going.
+    while (keepReading && port.readable) {
+      reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read(); if (done) break;
+          const text = dec.decode(value, { stream: true });
+          buf += text;
+          log([...text].map(c => c.charCodeAt(0) < 32 ? '<' + c.charCodeAt(0).toString(16).padStart(2, '0') + '>' : c).join(''));
+          const parts = buf.split(/[\r\n\x02\x03]+/); buf = parts.pop(); if (buf.length > 200) buf = '';
+          parts.forEach(p => { if (p.trim()) { frames++; show(p); } });
+          $('st').textContent = `متصل على ${$('baud').value} — ${frames} قراءة — ${errors} خطأ`;
+        }
+      } catch (e) {
+        errors++;
+        log('!! ' + e.name + ': ' + e.message);
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  } catch (e) { $('st').textContent = 'خطأ: ' + e.message; }
+};
+$('disconnect').onclick = async () => {
+  keepReading = false;
+  try { await reader?.cancel(); await port?.close(); } catch (e) {}
+  $('st').textContent = 'غير متصل';
+};
+</script>
+</body></html>

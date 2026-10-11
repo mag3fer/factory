@@ -40,7 +40,8 @@ require __DIR__ . '/inc/header.php';
         <input id="manualGross" type="number" step="0.01" min="0" class="form-control num" placeholder="لو الميزان مش متصل اكتب الوزن هنا">
         <span class="input-group-text">kg</span>
       </div>
-      <div class="small text-muted mt-1" id="rawFrame" dir="ltr"></div>
+      <div class="d-flex justify-content-between small text-muted mt-1"><span id="lastAt"></span><span id="rawFrame" dir="ltr"></span></div>
+      <button id="btnSameWeight" class="btn btn-sm btn-outline-warning mt-1 d-none">الكرتونة الجديدة نفس الوزن بالظبط — استخدم الوزن ده</button>
       <hr>
       <div class="row text-center">
         <div class="col"><div class="text-muted">الفوارغ</div><div class="fs-4 num" id="tare">0.000</div></div>

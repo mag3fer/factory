@@ -6,11 +6,14 @@
   const BAG = parseFloat(station.dataset.bag || '0');
   const BAUD = parseInt(station.dataset.baud || '9600', 10);
 
-  let liveGross = null;      // last reading from the scale (kg)
-  let stable = false;
-  let history = [];          // recent readings for stability detection
-  let port = null, reader = null;
-  let needRemoval = false;   // after saving from the scale, wait until the carton is lifted off (prevents double save)
+  // The Anheng indicator sends one frame ("12.00\r") each time a new load settles, nothing while
+  // empty. So every frame is a ready-to-use stable weight. A weight that was already saved is
+  // "used" and can't be saved again until a different weight arrives (guards against double saves,
+  // also for indicators that stream the same value continuously).
+  let liveGross = null;      // last weight received (kg)
+  let fresh = false;         // liveGross not yet saved
+  let usedValue = null;      // weight of the last saved carton
+  let port = null, reader = null, keepReading = false;
 
   // ---------- remember selections between cartons ----------
   const KEEP = ['finished', 'raw', 'cone', 'conesCount', 'pack'];
@@ -34,7 +37,7 @@
   function currentGross() {
     const manual = parseFloat($('manualGross').value);
     if (!isNaN(manual) && manual > 0) return { value: manual, source: 'manual' };
-    if (liveGross !== null && stable && !needRemoval) return { value: liveGross, source: 'scale' };
+    if (liveGross !== null && fresh) return { value: liveGross, source: 'scale' };
     return null;
   }
 
@@ -45,8 +48,16 @@
     const net = g ? Math.round((g.value - tare) * 1000) / 1000 : 0;
     $('net').textContent = net.toFixed(3);
     $('btnSave').disabled = !(g && net > 0 && $('finished').value);
-    $('btnSave').textContent = needRemoval && !g ? 'ارفع الكرتونة من على الميزان…' : (!$('finished').value ? 'اختر النمرة الأول' : 'حفظ وطباعة الستيكر');
+    $('btnSave').textContent = !$('finished').value ? 'اختر النمرة الأول'
+      : (!g && usedValue !== null ? 'تم الحفظ — حط الكرتونة الجاية…' : 'حفظ وطباعة الستيكر');
+    $('display').classList.toggle('unstable', liveGross !== null && !fresh);
+    // two cartons in a row can weigh exactly the same; the indicator won't resend, so let the operator confirm
+    $('btnSameWeight').classList.toggle('d-none', !(usedValue !== null && liveGross === usedValue && !fresh));
   }
+  $('btnSameWeight').addEventListener('click', () => {
+    if (!confirm(`متأكد إن فيه كرتونة جديدة على الميزان ووزنها ${liveGross.toFixed(2)} كيلو؟`)) return;
+    usedValue = null; fresh = true; recalc();
+  });
 
   // ---------- Web Serial ----------
   // Indicator frames vary by model: "ST,GS,+  12.34kg", "  12.34 kg", or reversed "=43.2100" (= 0012.34).
@@ -67,46 +78,62 @@
   }
 
   function onReading(r) {
-    liveGross = r.value;
-    if (needRemoval && r.value < 0.5) needRemoval = false;
-    history.push(r.value);
-    if (history.length > 6) history.shift();
-    const spread = Math.max(...history) - Math.min(...history);
-    stable = !r.unstableFlag && history.length >= 4 && spread <= 0.05;
+    if (r.unstableFlag) return;
+    if (r.value < 0.1) {             // empty scale: the next carton is new even if it weighs the same
+      usedValue = null;
+      liveGross = r.value; fresh = false;
+    } else if (usedValue !== null && Math.abs(r.value - usedValue) < 0.005) {
+      liveGross = r.value; fresh = false; // same carton still on the scale
+    } else {
+      liveGross = r.value; fresh = true; usedValue = null;
+    }
     const d = $('display');
     d.textContent = r.value.toFixed(2);
     d.classList.remove('offline');
-    d.classList.toggle('unstable', !stable);
+    $('lastAt').textContent = 'آخر وزن وصل الساعة ' + new Date().toLocaleTimeString('ar-EG');
     recalc();
   }
 
+  // Non-fatal serial errors (framing/parity/overrun) end one reader; take a new one and keep going.
   async function readLoop() {
-    const decoder = new TextDecoderStream();
-    port.readable.pipeTo(decoder.writable).catch(() => {});
-    reader = decoder.readable.getReader();
+    const dec = new TextDecoder();
     let buf = '';
+    keepReading = true;
     setStatus('الميزان متصل', 'bg-success');
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += value;
-        const parts = buf.split(/[\r\n\x02\x03]+/);
-        buf = parts.pop();
-        if (buf.length > 200) buf = '';
-        for (const p of parts) {
-          if (!p.trim()) continue;
-          $('rawFrame').textContent = 'آخر قراءة خام: ' + JSON.stringify(p);
-          const r = parseFrame(p);
-          if (r) onReading(r);
+    while (keepReading && port?.readable) {
+      reader = port.readable.getReader();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split(/[\r\n\x02\x03]+/);
+          buf = parts.pop();
+          if (buf.length > 200) buf = '';
+          for (const p of parts) {
+            if (!p.trim()) continue;
+            $('rawFrame').textContent = 'آخر قراءة خام: ' + JSON.stringify(p);
+            const r = parseFrame(p);
+            if (r) onReading(r);
+          }
         }
+      } catch (e) {
+        console.warn('serial read error', e);
+      } finally {
+        reader.releaseLock();
       }
-    } catch (e) {
-      setStatus('انقطع الاتصال بالميزان', 'bg-danger');
     }
+    if (keepReading) setStatus('انقطع الاتصال بالميزان', 'bg-danger');
     $('display').classList.add('offline');
-    stable = false;
+    fresh = false;
     recalc();
+  }
+
+  async function closePort() {
+    keepReading = false;
+    try { await reader?.cancel(); } catch (e) {}
+    try { await port?.close(); } catch (e) {}
+    port = null;
   }
 
   async function openPort(p) {
@@ -128,7 +155,7 @@
       return;
     }
     try {
-      if (port) { try { await reader?.cancel(); await port.close(); } catch (e) {} port = null; }
+      if (port) await closePort();
       await openPort(await navigator.serial.requestPort());
     } catch (e) {
       setStatus('لم يتم التوصيل: ' + e.message, 'bg-warning text-dark');
@@ -176,7 +203,7 @@
       printLabel(r.id);
       addRecent(r, g.value);
       $('manualGross').value = '';
-      if (g.source === 'scale') needRemoval = true;
+      if (g.source === 'scale') { usedValue = g.value; fresh = false; }
     } catch (e) {
       showMsg('مفيش اتصال بالسيرفر — الكرتونة ما اتسجلتش. جرّب تاني.', 'danger');
     } finally {
