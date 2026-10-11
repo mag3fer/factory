@@ -7,7 +7,6 @@ $keys = [
     'company_phone1' => ['رقم الهاتف 1', 'text'],
     'company_phone2' => ['رقم الهاتف 2', 'text'],
     'company_address' => ['العنوان على الستيكر', 'text'],
-    'bag_weight' => ['وزن الكيس لكل كونة (كيلو)', 'number'],
     'default_cones' => ['عدد الكونات الافتراضي في الكرتونة', 'number'],
     'label_width_mm' => ['عرض الستيكر (مم)', 'number'],
     'label_height_mm' => ['طول الستيكر (مم)', 'number'],

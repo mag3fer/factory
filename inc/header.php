@@ -9,6 +9,7 @@ $nav = [
     ['stock.php', 'المخزن', ['admin', 'store']],
     ['items.php', 'الأصناف', ['admin', 'store']],
     ['parties.php', 'العملاء والموردين', ['admin', 'store']],
+    ['packing.php', 'أنواع التعبئة', ['admin']],
     ['users.php', 'المستخدمين', ['admin']],
     ['settings.php', 'الإعدادات', ['admin']],
 ];

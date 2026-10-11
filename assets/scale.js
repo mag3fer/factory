@@ -3,7 +3,6 @@
   const $ = id => document.getElementById(id);
   const station = $('station');
   const CSRF = station.dataset.csrf;
-  const BAG = parseFloat(station.dataset.bag || '0');
   const BAUD = parseInt(station.dataset.baud || '9600', 10);
 
   // The Anheng indicator sends one frame ("12.00\r") each time a new load settles, nothing while
@@ -16,7 +15,7 @@
   let port = null, reader = null, keepReading = false;
 
   // ---------- remember selections between cartons ----------
-  const KEEP = ['finished', 'raw', 'cone', 'conesCount', 'pack'];
+  const KEEP = ['finished', 'raw', 'packing', 'cone', 'conesCount'];
   KEEP.forEach(id => {
     try { const v = localStorage.getItem('scale.' + id); if (v !== null) $(id).value = v; } catch (e) {}
     $(id).addEventListener('change', () => { try { localStorage.setItem('scale.' + id, $(id).value); } catch (e) {} recalc(); });
@@ -24,13 +23,17 @@
   $('conesCount').addEventListener('input', recalc);
   $('manualGross').addEventListener('input', recalc);
 
+  // tare per packing type, same formula as the old station: cones × cone + carton/sack + cones × bag
   function tareOf() {
-    const coneOpt = $('cone').selectedOptions[0], packOpt = $('pack').selectedOptions[0];
-    const coneW = parseFloat(coneOpt?.dataset.tare || '0');
-    const packW = parseFloat(packOpt?.dataset.tare || '0');
+    const pt = $('packing').selectedOptions[0];
+    const coneW = parseFloat(pt?.dataset.cone || '0');
+    const packW = parseFloat(pt?.dataset.pack || '0');
+    const bagW = parseFloat(pt?.dataset.bag || '0');
     const n = Math.max(0, parseInt($('conesCount').value || '0', 10));
-    const tare = n * coneW + packW + n * BAG;
-    $('tareDetail').textContent = `الفوارغ = ${n} كونة × ${coneW.toFixed(3)} + تعبئة ${packW.toFixed(3)} + ${n} كيس × ${BAG.toFixed(3)} = ${tare.toFixed(3)} كيلو`;
+    const tare = n * coneW + packW + n * bagW;
+    $('tareDetail').textContent = $('packing').value
+      ? `الفوارغ = ${n} كونة × ${coneW.toFixed(3)} + كرتونة/شكارة ${packW.toFixed(3)} + ${n} كيس × ${bagW.toFixed(3)} = ${tare.toFixed(3)} كيلو`
+      : 'اختر نوع التعبئة عشان الفوارغ تتحسب';
     return Math.round(tare * 1000) / 1000;
   }
 
@@ -47,8 +50,9 @@
     const g = currentGross();
     const net = g ? Math.round((g.value - tare) * 1000) / 1000 : 0;
     $('net').textContent = net.toFixed(3);
-    $('btnSave').disabled = !(g && net > 0 && $('finished').value);
+    $('btnSave').disabled = !(g && net > 0 && $('finished').value && $('packing').value);
     $('btnSave').textContent = !$('finished').value ? 'اختر النمرة الأول'
+      : !$('packing').value ? 'اختر نوع التعبئة'
       : (!g && usedValue !== null ? 'تم الحفظ — حط الكرتونة الجاية…' : 'حفظ وطباعة الستيكر');
     $('display').classList.toggle('unstable', liveGross !== null && !fresh);
     // two cartons in a row can weigh exactly the same; the indicator won't resend, so let the operator confirm
@@ -212,7 +216,7 @@
     try {
       const r = await post({
         action: 'save', finished_item_id: $('finished').value, raw_item_id: $('raw').value,
-        cone_item_id: $('cone').value, cones_count: $('conesCount').value, pack_item_id: $('pack').value,
+        cone_item_id: $('cone').value, cones_count: $('conesCount').value, packing_type_id: $('packing').value,
         gross: g.value.toFixed(3), weight_source: g.source,
       });
       if (!r.ok) { showMsg(r.error, 'danger'); return; }

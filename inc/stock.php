@@ -77,22 +77,25 @@ function next_package_serial(): string
 }
 
 /**
- * Save one weighed carton/sack: finished yarn in, cones and pack out.
- * Tare and net are recomputed here from item tare weights — the browser values are not trusted.
+ * Save one weighed carton/sack: finished yarn in, cones and the carton/sack out.
+ * Tare comes from the packing type (same table as the old station's boxing.txt) and is
+ * recomputed here — the browser values are not trusted.
  */
 function save_package(array $d, int $userId): array
 {
     $fin = q("SELECT * FROM items WHERE id=? AND type='finished' AND active=1", [(int)$d['finished_item_id']])->fetch();
     if (!$fin) throw new InvalidArgumentException('اختر النمرة (الخيط التام)');
+    $pt = q('SELECT * FROM packing_types WHERE id=? AND active=1', [(int)($d['packing_type_id'] ?? 0)])->fetch();
+    if (!$pt) throw new InvalidArgumentException('اختر نوع التعبئة');
     $cone = !empty($d['cone_item_id']) ? q("SELECT * FROM items WHERE id=? AND type='cone'", [(int)$d['cone_item_id']])->fetch() : null;
-    $pack = !empty($d['pack_item_id']) ? q("SELECT * FROM items WHERE id=? AND type='pack'", [(int)$d['pack_item_id']])->fetch() : null;
+    $pack = $pt['pack_item_id'] ? q('SELECT * FROM items WHERE id=?', [(int)$pt['pack_item_id']])->fetch() : null;
     $raw = !empty($d['raw_item_id']) ? q("SELECT * FROM items WHERE id=? AND type='raw'", [(int)$d['raw_item_id']])->fetch() : null;
 
     $cones = max(0, (int)$d['cones_count']);
     $gross = round((float)$d['gross'], 3);
-    $coneW = $cone ? (float)$cone['tare_weight'] : 0.0;
-    $packW = $pack ? (float)$pack['tare_weight'] : 0.0;
-    $bagW = (float)setting('bag_weight', '0');
+    $coneW = (float)$pt['cone_weight'];
+    $packW = (float)$pt['pack_weight'];
+    $bagW = (float)$pt['bag_weight'];
     $tare = round($cones * $coneW + $packW + $cones * $bagW, 3);
     $net = round($gross - $tare, 3);
     if ($gross <= 0) throw new InvalidArgumentException('الوزن القائم لازم يكون أكبر من صفر');
@@ -104,9 +107,9 @@ function save_package(array $d, int $userId): array
         $pdo->beginTransaction();
         try {
             $serial = next_package_serial();
-            q('INSERT INTO packages (serial, finished_item_id, raw_item_id, cone_item_id, cones_count, pack_item_id, cone_weight, pack_weight, bag_weight, tare, gross, net, weight_source, user_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-                $serial, $fin['id'], $raw['id'] ?? null, $cone['id'] ?? null, $cones, $pack['id'] ?? null,
+            q('INSERT INTO packages (serial, finished_item_id, raw_item_id, cone_item_id, cones_count, pack_item_id, packing_type_id, cone_weight, pack_weight, bag_weight, tare, gross, net, weight_source, user_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
+                $serial, $fin['id'], $raw['id'] ?? null, $cone['id'] ?? null, $cones, $pack['id'] ?? null, $pt['id'],
                 $coneW, $packW, $bagW, $tare, $gross, $net, $source, $userId,
             ]);
             $pkgId = (int)$pdo->lastInsertId();

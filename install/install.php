@@ -55,4 +55,7 @@ foreach ($opening as $code => $qty) {
     $move->execute([$id, $qty, $qty, $docId, "$today 00:00:00"]);
 }
 
+require __DIR__ . '/migrate.php';
+run_migrations($pdo);
+
 echo "done. admin password written to install/ADMIN_PASSWORD.txt\n";

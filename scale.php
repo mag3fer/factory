@@ -5,7 +5,7 @@ $u = require_role('scale');
 $finished = items_by_type('finished');
 $raws = items_by_type('raw');
 $cones = items_by_type('cone');
-$packs = items_by_type('pack');
+$packingTypes = q('SELECT * FROM packing_types WHERE active=1 ORDER BY id')->fetchAll();
 $recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.status, p.created_at, i.code, i.name
              FROM packages p JOIN items i ON i.id=p.finished_item_id
              WHERE DATE(p.created_at)=CURDATE() ORDER BY p.id DESC LIMIT 15")->fetchAll();
@@ -24,7 +24,7 @@ $pageScripts = ['assets/scale.js?v=' . filemtime(__DIR__ . '/assets/scale.js')];
 require __DIR__ . '/inc/header.php';
 ?>
 <div class="row g-3" id="station"
-     data-csrf="<?= csrf_token() ?>" data-bag="<?= e(setting('bag_weight', '0')) ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>">
+     data-csrf="<?= csrf_token() ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>">
   <div class="col-xl-5">
     <div class="card p-3">
       <div class="d-flex justify-content-between align-items-center mb-2">
@@ -56,9 +56,10 @@ require __DIR__ . '/inc/header.php';
       <div class="row g-2">
         <div class="col-md-8"><label class="form-label">النمرة (الخيط التام)</label><select id="finished" class="form-select form-select-lg"><option value="">— اختر —</option><?= opt($finished) ?></select></div>
         <div class="col-md-4"><label class="form-label">البوي (الخام)</label><select id="raw" class="form-select"><option value="">—</option><?= opt($raws) ?></select></div>
-        <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones, true) ?></select></div>
+        <div class="col-md-5"><label class="form-label">نوع التعبئة</label><select id="packing" class="form-select"><option value="">— اختر —</option>
+          <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones) ?></select></div>
         <div class="col-md-2"><label class="form-label">عدد الكونات</label><input id="conesCount" type="number" min="0" class="form-control num" value="<?= e(setting('default_cones', '6')) ?>"></div>
-        <div class="col-md-5"><label class="form-label">التعبئة</label><select id="pack" class="form-select"><option value="">بدون</option><?= opt($packs, true) ?></select></div>
       </div>
       <div class="small text-muted mt-2" id="tareDetail"></div>
     </div>
