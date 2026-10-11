@@ -11,7 +11,7 @@ $p = q("SELECT p.*, f.code fcode, f.name fname, f.lot_no, f.grade, r.lot_no rlot
 if (!$p) { http_response_code(404); exit('غير موجود'); }
 $w = (int)setting('label_width_mm', '76');
 $h = (int)setting('label_height_mm', '130');
-$logo = setting('logo_file');
+$logo = setting('logo_label') ?: setting('logo_file');
 $lot = $p['lot_no'] ?: $p['rlot'];
 // The lot is printed in its own row, so drop it from the displayed item name when the name ends with it.
 $itemName = $lot ? trim(preg_replace('/\s*' . preg_quote($lot, '/') . '\s*$/u', '', $p['fname'])) : $p['fname'];
@@ -22,30 +22,30 @@ $itemName = $lot ? trim(preg_replace('/\s*' . preg_quote($lot, '/') . '\s*$/u', 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { width: <?= $w ?>mm; height: <?= $h ?>mm; font-family: Arial, Tahoma, sans-serif; color: #000; overflow: hidden; }
-.lbl { width: 100%; height: 100%; padding: 3mm 3.5mm 2.5mm; display: flex; flex-direction: column; align-items: center; }
-.logo { max-height: 20mm; max-width: 40mm; margin-top: 2mm; }
+.lbl { width: 100%; height: 100%; padding: 2mm 3.5mm 2mm; display: flex; flex-direction: column; align-items: center; }
+.logo { height: 26mm; max-width: 62mm; object-fit: contain; margin: .5mm 0 1.5mm; }
 .co { font-size: 21pt; font-weight: 800; letter-spacing: .3pt; direction: ltr; margin: 1mm 0 1.5mm; }
 table.t { width: 100%; border-collapse: collapse; font-size: 9pt; }
-table.t td { border: .35mm solid #000; padding: 1.6mm 1.2mm; text-align: center; vertical-align: middle; }
+table.t td { border: .35mm solid #000; padding: 1.1mm 1.2mm; text-align: center; vertical-align: middle; }
 td.en { direction: ltr; width: 26%; font-size: 8pt; white-space: nowrap; }
 td.ar { width: 24%; font-weight: 700; font-size: 8pt; white-space: nowrap; }
 td.v { font-weight: 700; font-size: 11pt; }
 td.v.ltr { direction: ltr; }
 tr.net td.v { font-size: 15pt; }
-.info { width: 100%; font-size: 9pt; margin-top: 3mm; line-height: 1.45; }
+.info { width: 100%; font-size: 8.5pt; margin-top: 1.8mm; line-height: 1.3; }
 .info .row { display: flex; justify-content: space-between; direction: ltr; }
 .info .row b { font-weight: 700; white-space: nowrap; padding-right: 2mm; }
 .addr { direction: rtl; text-align: right; }
 .made { font-size: 9pt; font-weight: 700; margin-top: 1.5mm; }
 .bc { margin-top: auto; width: 100%; text-align: center; }
-.bc svg { width: 92%; height: 15mm; }
+.bc svg { width: 92%; height: 13mm; }
 .bc .s { display: flex; justify-content: space-between; font-size: 7.5pt; padding: 0 2mm; }
 .bc .s .n { direction: ltr; font-size: 9pt; letter-spacing: .8pt; }
 @media screen { body { margin: 10px auto; outline: 1px dashed #999; } }
 </style></head>
 <body><div class="lbl">
-  <?php if ($logo && is_file(__DIR__ . '/' . $logo)): ?><img class="logo" src="<?= e($logo) ?>?v=<?= filemtime(__DIR__ . '/' . $logo) ?>" alt=""><?php endif; ?>
-  <div class="co"><?= e(setting('company_name', 'TEXTILE LAND')) ?></div>
+  <?php if ($logo && is_file(__DIR__ . '/' . $logo)): ?><img class="logo" src="<?= e($logo) ?>?v=<?= filemtime(__DIR__ . '/' . $logo) ?>" alt="">
+  <?php else: ?><div class="co"><?= e(setting('company_name', 'TEXTILE LAND')) ?></div><?php endif; ?>
   <table class="t">
     <tr><td class="ar">النمرة</td><td class="v"><?= e($itemName) ?></td><td class="en">Items</td></tr>
     <tr><td class="ar">اللوط</td><td class="v ltr"><?= e($lot) ?></td><td class="en">Lot</td></tr>
