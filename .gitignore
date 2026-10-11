@@ -1,3 +1,4 @@
 config.php
 install/ADMIN_PASSWORD.txt
 backups/
+assets/uploads/

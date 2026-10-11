@@ -1,45 +1,69 @@
 <?php
-// Barcode sticker for one package, sized for the Xprinter XP-428B label roll (size from settings).
+// Barcode sticker for one package — same layout as the old TEXTILE LAND label.
+// Xprinter XP-428B stock is 2.99" x 5.12" (76 x 130 mm portrait); size comes from settings.
 require __DIR__ . '/inc/bootstrap.php';
 require_role();
 
-$p = q("SELECT p.*, f.code fcode, f.name fname, f.spec, f.lot_no, f.grade, r.name rname, r.lot_no rlot, c.name cname
+$p = q("SELECT p.*, f.code fcode, f.name fname, f.lot_no, f.grade, r.lot_no rlot, c.color cone_color, c.name cname
         FROM packages p JOIN items f ON f.id=p.finished_item_id
         LEFT JOIN items r ON r.id=p.raw_item_id LEFT JOIN items c ON c.id=p.cone_item_id
         WHERE p.id=?", [(int)($_GET['id'] ?? 0)])->fetch();
 if (!$p) { http_response_code(404); exit('غير موجود'); }
-$w = (int)setting('label_width_mm', '100');
-$h = (int)setting('label_height_mm', '70');
+$w = (int)setting('label_width_mm', '76');
+$h = (int)setting('label_height_mm', '130');
+$logo = setting('logo_file');
+$lot = $p['lot_no'] ?: $p['rlot'];
+// The lot is printed in its own row, so drop it from the displayed item name when the name ends with it.
+$itemName = $lot ? trim(preg_replace('/\s*' . preg_quote($lot, '/') . '\s*$/u', '', $p['fname'])) : $p['fname'];
 ?><!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8"><title><?= e($p['serial']) ?></title>
 <style>
 @page { size: <?= $w ?>mm <?= $h ?>mm; margin: 0; }
+* { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-body { width: <?= $w ?>mm; height: <?= $h ?>mm; font-family: Tahoma, Arial, sans-serif; color: #000; }
-.lbl { box-sizing: border-box; width: 100%; height: 100%; padding: 2.5mm 3mm; display: flex; flex-direction: column; }
-.top { display: flex; justify-content: space-between; align-items: center; border-bottom: .4mm solid #000; padding-bottom: 1mm; }
-.co { font-size: 15pt; font-weight: 700; letter-spacing: .5pt; direction: ltr; }
-.ph { font-size: 7.5pt; direction: ltr; text-align: left; }
-.name { font-size: 12pt; font-weight: 700; margin: 1.2mm 0 .8mm; line-height: 1.15; }
-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
-td { padding: .3mm 0; } td.k { color: #000; width: 22%; } td.v { font-weight: 700; direction: ltr; text-align: right; }
-.net { font-size: 20pt; font-weight: 800; direction: ltr; }
-.bc { margin-top: auto; text-align: center; }
-.bc svg { width: 100%; height: 13mm; }
-.bc .s { font-size: 9pt; letter-spacing: 1pt; direction: ltr; }
+body { width: <?= $w ?>mm; height: <?= $h ?>mm; font-family: Arial, Tahoma, sans-serif; color: #000; overflow: hidden; }
+.lbl { width: 100%; height: 100%; padding: 3mm 3.5mm 2.5mm; display: flex; flex-direction: column; align-items: center; }
+.logo { max-height: 20mm; max-width: 40mm; margin-top: 2mm; }
+.co { font-size: 21pt; font-weight: 800; letter-spacing: .3pt; direction: ltr; margin: 1mm 0 1.5mm; }
+table.t { width: 100%; border-collapse: collapse; font-size: 9pt; }
+table.t td { border: .35mm solid #000; padding: 1.6mm 1.2mm; text-align: center; vertical-align: middle; }
+td.en { direction: ltr; width: 26%; font-size: 8pt; white-space: nowrap; }
+td.ar { width: 24%; font-weight: 700; font-size: 8pt; white-space: nowrap; }
+td.v { font-weight: 700; font-size: 11pt; }
+td.v.ltr { direction: ltr; }
+tr.net td.v { font-size: 15pt; }
+.info { width: 100%; font-size: 9pt; margin-top: 3mm; line-height: 1.45; }
+.info .row { display: flex; justify-content: space-between; direction: ltr; }
+.info .row b { font-weight: 700; white-space: nowrap; padding-right: 2mm; }
+.addr { direction: rtl; text-align: right; }
+.made { font-size: 9pt; font-weight: 700; margin-top: 1.5mm; }
+.bc { margin-top: auto; width: 100%; text-align: center; }
+.bc svg { width: 92%; height: 15mm; }
+.bc .s { display: flex; justify-content: space-between; font-size: 7.5pt; padding: 0 2mm; }
+.bc .s .n { direction: ltr; font-size: 9pt; letter-spacing: .8pt; }
 @media screen { body { margin: 10px auto; outline: 1px dashed #999; } }
 </style></head>
 <body><div class="lbl">
-  <div class="top"><div class="co"><?= e(setting('company_name')) ?></div><div class="ph"><?= e(setting('company_phone1')) ?><br><?= e(setting('company_phone2')) ?></div></div>
-  <div class="name"><?= e($p['fname']) ?></div>
-  <table>
-    <tr><td class="k">الكود</td><td class="v"><?= e($p['fcode']) ?></td><td class="k">الصافي</td><td class="v net" rowspan="2"><?= fmt_qty($p['net'], 2) ?> kg</td></tr>
-    <tr><td class="k">اللوط</td><td class="v"><?= e($p['lot_no'] ?: $p['rlot']) ?></td><td class="k"></td></tr>
-    <tr><td class="k">الكونات</td><td class="v"><?= (int)$p['cones_count'] ?></td><td class="k">القائم</td><td class="v"><?= fmt_qty($p['gross'], 2) ?> kg</td></tr>
-    <tr><td class="k">التاريخ</td><td class="v"><?= e(date('d/m/Y H:i', strtotime($p['created_at']))) ?></td><td class="k">الدرجة</td><td class="v"><?= e($p['grade']) ?></td></tr>
+  <?php if ($logo && is_file(__DIR__ . '/' . $logo)): ?><img class="logo" src="<?= e($logo) ?>?v=<?= filemtime(__DIR__ . '/' . $logo) ?>" alt=""><?php endif; ?>
+  <div class="co"><?= e(setting('company_name', 'TEXTILE LAND')) ?></div>
+  <table class="t">
+    <tr><td class="ar">النمرة</td><td class="v"><?= e($itemName) ?></td><td class="en">Items</td></tr>
+    <tr><td class="ar">اللوط</td><td class="v ltr"><?= e($lot) ?></td><td class="en">Lot</td></tr>
+    <tr><td class="ar">اللون</td><td class="v"><?= e($p['cone_color'] ?: $p['cname']) ?></td><td class="en">Color</td></tr>
+    <tr><td class="ar">عدد الكونات</td><td class="v ltr"><?= (int)$p['cones_count'] ?></td><td class="en">Cones NO.</td></tr>
+    <tr><td class="ar">الوزن القائم</td><td class="v ltr"><?= fmt_qty($p['gross'], 2) ?></td><td class="en">Gross weight</td></tr>
+    <tr class="net"><td class="ar">الوزن الصافي</td><td class="v ltr"><?= fmt_qty($p['net'], 3) ?> kg</td><td class="en">Net weight</td></tr>
   </table>
-  <div class="bc"><svg id="bc"></svg><div class="s"><?= e($p['serial']) ?></div></div>
+  <div class="info">
+    <?php if (setting('company_phone1')): ?><div class="row"><b>Mobile 1 :</b><span><?= e(setting('company_phone1')) ?></span></div><?php endif; ?>
+    <?php if (setting('company_phone2')): ?><div class="row"><b>Mobile 2 :</b><span><?= e(setting('company_phone2')) ?></span></div><?php endif; ?>
+    <?php if (setting('company_address')): ?><div class="row"><b>Address :</b><span class="addr"><?= e(setting('company_address')) ?></span></div><?php endif; ?>
+  </div>
+  <div class="made">Made in Egypt - صنع في مصر</div>
+  <div class="bc"><svg id="bc"></svg>
+    <div class="s"><span><?= e(date('d/m/Y H:i', strtotime($p['created_at']))) ?></span><span class="n"><?= e($p['serial']) ?></span><span><?= e($p['fcode']) ?></span></div>
+  </div>
 </div>
 <script src="assets/JsBarcode.all.min.js"></script>
-<script>JsBarcode('#bc', <?= json_encode($p['serial']) ?>, { format: 'CODE128', displayValue: false, margin: 0, height: 50, width: 2 });</script>
+<script>JsBarcode('#bc', <?= json_encode($p['serial']) ?>, { format: 'CODE128', displayValue: false, margin: 0, height: 45, width: 2 });</script>
 </body></html>

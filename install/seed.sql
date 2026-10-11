@@ -9,8 +9,10 @@ INSERT INTO settings (skey, svalue) VALUES
  ('company_phone2', '01120160241'),
  ('bag_weight', '0.015'),
  ('default_cones', '6'),
- ('label_width_mm', '100'),
- ('label_height_mm', '70'),
+ ('label_width_mm', '76'),
+ ('label_height_mm', '130'),
+ ('company_address', 'تكستايل لاند لصناعة الخيوط البولستر - مدينة بدر 250 فدان'),
+ ('logo_file', ''),
  ('scale_baud', '9600');
 
 INSERT INTO items (code, name, type, unit, spec, poy_spec, lot_no, grade, color, tare_weight) VALUES
