@@ -3,14 +3,26 @@ require __DIR__ . '/inc/bootstrap.php';
 
 $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // the page submits with fetch (to play the entry animation); plain form posts still work without JS
+    $ajax = ($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'fetch';
     csrf_check();
     $user = q('SELECT * FROM users WHERE username=? AND active=1', [trim($_POST['username'] ?? '')])->fetch();
     if ($user && password_verify($_POST['password'] ?? '', $user['password_hash'])) {
         session_regenerate_id(true);
         $_SESSION['user'] = ['id' => (int)$user['id'], 'username' => $user['username'], 'full_name' => $user['full_name'], 'role' => $user['role']];
-        redirect($user['role'] === 'scale' ? 'scale.php' : 'index.php');
+        $to = $user['role'] === 'scale' ? 'scale.php' : 'index.php';
+        if ($ajax) {
+            header('Content-Type: application/json; charset=utf-8');
+            exit(json_encode(['ok' => true, 'redirect' => $to, 'name' => $user['full_name']], JSON_UNESCAPED_UNICODE));
+        }
+        redirect($to);
     }
     $error = 'اسم المستخدم أو كلمة المرور غير صحيحة';
+    if ($ajax) {
+        usleep(400000); // slow down password guessing a little
+        header('Content-Type: application/json; charset=utf-8');
+        exit(json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE));
+    }
 }
 if (current_user()) redirect(current_user()['role'] === 'scale' ? 'scale.php' : 'index.php');
 
@@ -130,6 +142,26 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
   .panel { animation-name: up; }
 }
 @media (prefers-reduced-motion: reduce) { .slide.on img, .threads path { animation: none !important; } }
+
+/* ---------- entry animation: a cone winding up with thread, then the system opens ---------- */
+.enter { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; pointer-events: none; visibility: hidden;
+  background: radial-gradient(900px 600px at 50% 40%, #12345a 0%, #0a1422 60%, #050b14 100%); clip-path: circle(0% at var(--cx, 20%) var(--cy, 70%)); }
+.enter.on { visibility: visible; pointer-events: all; animation: openUp .75s cubic-bezier(.7,0,.2,1) forwards; }
+@keyframes openUp { to { clip-path: circle(150% at var(--cx, 20%) var(--cy, 70%)); } }
+.enter .stage { text-align: center; color: #fff; transform: translateY(10px); opacity: 0; }
+.enter.on .stage { animation: stageIn .6s ease forwards .45s; }
+@keyframes stageIn { to { transform: none; opacity: 1; } }
+.enter svg { width: min(520px, 86vw); height: auto; overflow: visible; }
+.enter .feed { stroke-dasharray: 6 9; animation: run 0.6s linear infinite; }
+.enter .hello { font-size: clamp(1.4rem, 3vw, 2rem); font-weight: 800; margin-top: .4rem; }
+.enter .sub { color: #94a3b8; margin-top: .2rem; min-height: 1.5em; transition: color .3s; }
+.enter .sub.done { color: #67e8f9; font-weight: 700; }
+.enter .meter { width: min(320px, 70vw); height: 4px; border-radius: 4px; background: rgba(255,255,255,.12); margin: 1rem auto 0; overflow: hidden; }
+.enter .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #22b8d8, #67e8f9); box-shadow: 0 0 12px #22b8d8; }
+.enter.on .meter i { animation: meter 2.1s cubic-bezier(.4,0,.2,1) forwards .6s; }
+@keyframes meter { to { width: 100%; } }
+.enter .stage.leave { animation: leave .55s ease forwards; }
+@keyframes leave { to { opacity: 0; transform: scale(1.08); filter: blur(4px); } }
 </style>
 </head>
 <body>
@@ -137,7 +169,7 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
   <section class="panel">
     <img class="brand-logo" src="<?= e($logoFull) ?>" alt="<?= e($company) ?>">
     <div class="welcome"><h1>أهلاً بيك 👋</h1><p>سجّل دخولك لنظام إدارة المصنع</p></div>
-    <?php if ($error): ?><div class="err"><i class="bi bi-exclamation-octagon"></i><?= e($error) ?></div><?php endif; ?>
+    <div id="errBox"><?php if ($error): ?><div class="err"><i class="bi bi-exclamation-octagon"></i><?= e($error) ?></div><?php endif; ?></div>
     <form method="post" id="f" autocomplete="on">
       <?= csrf_field() ?>
       <div class="fl"><input name="username" id="u" placeholder=" " required autofocus autocomplete="username" value="<?= e($_POST['username'] ?? '') ?>"><label for="u">اسم المستخدم</label><i class="bi bi-person"></i></div>
@@ -168,7 +200,105 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
     </div>
   </section>
 </div>
+<div class="enter" id="enter" aria-hidden="true">
+  <div class="stage">
+    <svg viewBox="0 0 460 330">
+      <defs>
+        <!-- cylinder shading: dark edges, bright band in the middle -->
+        <linearGradient id="cyl" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#94a3b8"/><stop offset=".22" stop-color="#e2e8f0"/><stop offset=".45" stop-color="#ffffff"/>
+          <stop offset=".7" stop-color="#e2e8f0"/><stop offset="1" stop-color="#7c8ba1"/>
+        </linearGradient>
+        <!-- criss-cross yarn; moving it vertically reads as the package spinning -->
+        <pattern id="yarn" width="16" height="12" patternUnits="userSpaceOnUse">
+          <path d="M0 12 L16 0" stroke="#475569" stroke-opacity=".28" stroke-width="1"/>
+          <path d="M0 0 L16 12" stroke="#ffffff" stroke-opacity=".6" stroke-width=".9"/>
+          <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="0 12" dur=".18s" repeatCount="indefinite"/>
+        </pattern>
+        <radialGradient id="face"><stop offset=".25" stop-color="#f1f5f9"/><stop offset="1" stop-color="#94a3b8"/></radialGradient>
+        <linearGradient id="feedG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#67e8f9" stop-opacity=".2"/><stop offset="1" stop-color="#e0f2fe"/></linearGradient>
+        <radialGradient id="glow"><stop offset="0" stop-color="#22b8d8" stop-opacity=".35"/><stop offset="1" stop-color="#22b8d8" stop-opacity="0"/></radialGradient>
+      </defs>
+      <ellipse cx="230" cy="200" rx="220" ry="130" fill="url(#glow)"/>
+      <!-- machine frame: traverse rail on top, spindle stand -->
+      <rect x="70" y="34" width="320" height="6" rx="3" fill="#1e3a5f"/>
+      <rect x="70" y="40" width="6" height="16" fill="#1e3a5f"/><rect x="384" y="40" width="6" height="16" fill="#1e3a5f"/>
+      <path d="M352 200 L380 300 H330 Z" fill="#16304f"/>
+      <rect x="300" y="296" width="110" height="8" rx="4" fill="#1e3a5f"/>
+      <!-- paper tube (axis) -->
+      <rect x="92" y="186" width="268" height="28" rx="4" fill="#d6a77a"/>
+      <rect x="92" y="186" width="268" height="6" rx="3" fill="#e9c39d" opacity=".7"/>
+      <circle cx="360" cy="200" r="9" fill="#0f2238" stroke="#2c4a6e" stroke-width="3"/>
+      <!-- yarn package: radius grows from the tube to full size -->
+      <g id="pkg">
+        <rect id="body" x="108" y="178" width="236" height="44" fill="url(#cyl)"/>
+        <rect id="tex" x="108" y="178" width="236" height="44" fill="url(#yarn)"/>
+        <ellipse id="endFace" cx="108" cy="200" rx="6" ry="22" fill="url(#face)" stroke="#94a3b8" stroke-width=".8"/>
+        <ellipse cx="108" cy="200" rx="4" ry="13" fill="#b7835a"/>
+        <ellipse cx="108" cy="200" rx="2.2" ry="8" fill="#5b3b22"/>
+      </g>
+      <!-- thread: feed from the top-left, through the traversing guide, down onto the package -->
+      <path id="feedIn" class="feed" d="M-40 10 Q 120 0 230 37" fill="none" stroke="url(#feedG)" stroke-width="1.6"/>
+      <line id="thread" x1="230" y1="40" x2="230" y2="178" stroke="#e0f2fe" stroke-width="1.6"/>
+      <g id="guide"><rect x="-9" y="30" width="18" height="16" rx="3" fill="#22b8d8"/><circle cx="0" cy="40" r="3" fill="#0a1422"/></g>
+      <ellipse cx="230" cy="312" rx="150" ry="8" fill="#000" opacity=".3"/>
+    </svg>
+    <div class="hello" id="hello">أهلاً بيك</div>
+    <div class="sub" id="enterSub">بنلف الخيط…</div>
+    <div class="meter"><i></i></div>
+  </div>
+</div>
 <script>
+(() => {
+  // ---- AJAX login + winding animation ----
+  const form = document.getElementById('f'), btn = document.getElementById('go'), errBox = document.getElementById('errBox');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function showError(msg) {
+    errBox.innerHTML = '<div class="err"><i class="bi bi-exclamation-octagon"></i>' + msg.replace(/[<>&]/g, '') + '</div>';
+    btn.classList.remove('loading');
+    document.getElementById('pw').select();
+  }
+  // winding: package radius grows, the guide traverses left-right laying the thread across the package
+  function wind(onDone) {
+    const body = document.getElementById('body'), tex = document.getElementById('tex'), face = document.getElementById('endFace');
+    const thread = document.getElementById('thread'), guide = document.getElementById('guide'), feedIn = document.getElementById('feedIn');
+    const cy = 200, r0 = 22, r1 = 96, xL = 116, xR = 336, dur = 2200, t0 = performance.now() + 550;
+    const step = now => {
+      const p = Math.max(0, Math.min(1, (now - t0) / dur)), e = 1 - Math.pow(1 - p, 2);
+      const r = r0 + (r1 - r0) * e;
+      [body, tex].forEach(el => { el.setAttribute('y', cy - r); el.setAttribute('height', 2 * r); });
+      face.setAttribute('ry', r); face.setAttribute('rx', Math.max(6, r * .26));
+      const gx = xL + (xR - xL) * (0.5 + 0.5 * Math.sin(now / 160));   // traverse guide
+      guide.setAttribute('transform', `translate(${gx.toFixed(1)} 0)`);
+      thread.setAttribute('x1', gx); thread.setAttribute('x2', gx); thread.setAttribute('y2', cy - r);
+      feedIn.setAttribute('d', `M-40 10 Q 120 0 ${gx.toFixed(1)} 37`);
+      if (p < 1) requestAnimationFrame(step); else onDone();
+    };
+    requestAnimationFrame(step);
+  }  form.addEventListener('submit', async ev => {
+    ev.preventDefault();
+    if (btn.classList.contains('loading')) return;
+    btn.classList.add('loading');
+    errBox.innerHTML = '';
+    let r;
+    try {
+      const res = await fetch('login.php', { method: 'POST', body: new FormData(form), headers: { 'X-Requested-With': 'fetch' } });
+      r = await res.json();
+    } catch (e) { form.submit(); return; }   // CSRF expired or network hiccup: fall back to a normal post
+    if (!r.ok) { showError(r.error); return; }
+    if (reduce) { location.href = r.redirect; return; }
+    const ov = document.getElementById('enter'), b = btn.getBoundingClientRect();
+    ov.style.setProperty('--cx', (b.left + b.width / 2) + 'px');
+    ov.style.setProperty('--cy', (b.top + b.height / 2) + 'px');
+    document.getElementById('hello').textContent = 'أهلاً ' + r.name;
+    ov.classList.add('on');
+    setTimeout(() => { document.getElementById('enterSub').textContent = 'بنجهّز المصنع…'; }, 1400);
+    wind(() => {
+      const s = document.getElementById('enterSub'); s.textContent = '✔ جاهز'; s.classList.add('done');
+      setTimeout(() => { ov.querySelector('.stage').classList.add('leave'); setTimeout(() => location.href = r.redirect, 380); }, 450);
+    });
+  });
+})();
 (() => {
   const slides = <?= json_encode(array_map(fn($s) => ['k' => $s[1], 't' => $s[2], 'd' => $s[3]], $slides), JSON_UNESCAPED_UNICODE) ?>;
   const els = document.querySelectorAll('.slide'), btns = document.querySelectorAll('#tl button'), cap = document.getElementById('cap');
@@ -199,7 +329,6 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
     const p = document.getElementById('pw'); p.type = p.type === 'password' ? 'text' : 'password';
     this.firstElementChild.className = p.type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
   });
-  document.getElementById('f').addEventListener('submit', () => document.getElementById('go').classList.add('loading'));
 })();
 </script>
 </body>
