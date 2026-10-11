@@ -13,147 +13,194 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $error = 'اسم المستخدم أو كلمة المرور غير صحيحة';
 }
 if (current_user()) redirect(current_user()['role'] === 'scale' ? 'scale.php' : 'index.php');
+
 $company = setting('company_name', 'TEXTILE LAND');
-$logo = setting('logo_file');
-$logoSrc = ($logo && is_file(__DIR__ . '/' . $logo)) ? $logo . '?v=' . filemtime(__DIR__ . '/' . $logo) : 'assets/brand.svg';
+$asset = function (string $key, string $fallback): string {
+    $f = setting($key);
+    return ($f && is_file(__DIR__ . '/' . $f)) ? $f . '?v=' . filemtime(__DIR__ . '/' . $f) : $fallback;
+};
+$logoFull = $asset('logo_full', $asset('logo_file', 'assets/brand.svg'));
+// production stages shown over the factory photos (files in assets/login/)
+$slides = [
+    ['1-poy.jpg', 'الخام', 'POY بالبالتات', 'خام بوليستر مستورد بلوطات ومواصفات مختلفة — كل لوط بيتسجل لوحده.'],
+    ['2-creel.jpg', 'التغذية', 'تحميل البوي على الكريل', 'الخام بيتحط على الكريل ويدخل الماكينة خيط خيط.'],
+    ['3-machine.jpg', 'التكسير', 'ماكينات DTY', 'تكسير وتسخين الخيط وتحويله لخيط بوليستر جاهز.'],
+    ['4-cones.jpg', 'الإنتاج', 'كونات جاهزة', 'كل كونة بتتوزن وتتعبى وتاخد ستيكر باركود.'],
+    ['5-cone.jpg', 'الجودة', 'منتج نهائي', 'من البوي للكونة… كل كيلو محسوب.'],
+];
+$slides = array_values(array_filter($slides, fn($s) => is_file(__DIR__ . '/assets/login/' . $s[0])));
 ?><!doctype html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>تسجيل الدخول — <?= e($company) ?></title>
-<link rel="icon" href="assets/brand.svg">
+<link rel="icon" href="<?= e($asset('logo_file', 'assets/brand.svg')) ?>">
 <link rel="stylesheet" href="assets/bootstrap.rtl.min.css">
 <link rel="stylesheet" href="assets/app.css?v=<?= filemtime(__DIR__ . '/assets/app.css') ?>">
 <style>
-body { background: #060d18; overflow: hidden; }
-.stage { position: fixed; inset: 0; background:
-  radial-gradient(1200px 600px at 80% -10%, rgba(37, 99, 235, .35), transparent 60%),
-  radial-gradient(900px 500px at -10% 110%, rgba(34, 184, 216, .25), transparent 60%),
-  linear-gradient(160deg, #07111f, #0b1a2e 55%, #08121f); }
-.grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
-  background-size: 48px 48px; mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%); animation: gridMove 30s linear infinite; }
-@keyframes gridMove { to { background-position: 48px 48px, 48px 48px; } }
+html, body { height: 100%; }
+body { margin: 0; background: #0a1422; overflow: hidden; }
+.login-shell { display: grid; grid-template-columns: minmax(420px, 34%) 1fr; height: 100vh; }
 
-/* the yarn machine scene */
-.scene { position: absolute; inset: 0; width: 100%; height: 100%; }
-.thread { fill: none; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 14 10; animation: flow 2.4s linear infinite; }
-.thread.t2 { animation-duration: 3.1s; } .thread.t3 { animation-duration: 2s; } .thread.t4 { animation-duration: 3.6s; }
-@keyframes flow { to { stroke-dashoffset: -96; } }
-.gear { transform-box: fill-box; transform-origin: center; animation: spin 14s linear infinite; }
-.gear.rev { animation-direction: reverse; animation-duration: 10s; }
+/* ---------- form panel ---------- */
+.panel { position: relative; z-index: 3; background: #fff; display: flex; flex-direction: column; justify-content: center; padding: 3rem clamp(2rem, 4vw, 4.5rem);
+  box-shadow: 30px 0 80px rgba(0,0,0,.35); animation: panelIn .9s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes panelIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: linear-gradient(90deg, #0e7490, #22b8d8, #2563eb, #0e7490); background-size: 200% 100%; animation: bar 6s linear infinite; }
+@keyframes bar { to { background-position: 200% 0; } }
+.brand-logo { display: block; width: min(300px, 80%); margin: 0 auto 1.4rem; animation: logoIn 1.1s cubic-bezier(.2,.8,.2,1) both .15s; }
+@keyframes logoIn { from { opacity: 0; transform: scale(.85) translateY(10px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+.welcome { text-align: center; margin-bottom: 1.8rem; animation: up .7s ease both .35s; }
+.welcome h1 { font-size: 1.45rem; font-weight: 800; color: #0f172a; margin: 0 0 .25rem; }
+.welcome p { color: #64748b; margin: 0; font-size: .92rem; }
+@keyframes up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+.fl { position: relative; margin-bottom: 1.05rem; animation: up .7s ease both; }
+.fl:nth-of-type(1) { animation-delay: .45s; } .fl:nth-of-type(2) { animation-delay: .55s; }
+.fl input { width: 100%; height: 56px; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 1.15rem 2.9rem .3rem 1rem; font-size: 1rem; color: #0f172a; background: #f8fafc;
+  transition: border-color .2s, box-shadow .2s, background .2s; }
+.fl input:focus { outline: none; border-color: #22b8d8; background: #fff; box-shadow: 0 0 0 4px rgba(34,184,216,.14); }
+.fl label { position: absolute; right: 2.9rem; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; transition: all .18s ease; font-size: .98rem; }
+.fl input:focus + label, .fl input:not(:placeholder-shown) + label { top: .85rem; font-size: .72rem; color: #0e7490; font-weight: 700; }
+.fl > i { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.15rem; transition: color .2s; }
+.fl input:focus ~ i { color: #0e7490; }
+.eye { position: absolute; left: .7rem; top: 50%; transform: translateY(-50%); border: 0; background: none; color: #94a3b8; font-size: 1.1rem; padding: .3rem; }
+.eye:hover { color: #0f172a; }
+
+.btn-go { width: 100%; height: 54px; border: 0; border-radius: 12px; color: #fff; font-weight: 800; font-size: 1.05rem; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #0b1726, #12345a 55%, #0e7490); box-shadow: 0 12px 28px rgba(14,116,144,.32); transition: transform .15s, box-shadow .2s; animation: up .7s ease both .65s; }
+.btn-go:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(14,116,144,.42); }
+.btn-go::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%); transform: translateX(-100%); animation: sheen 3.5s ease-in-out infinite 1.5s; }
+@keyframes sheen { 40%, 100% { transform: translateX(100%); } }
+.btn-go .sp { display: none; width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.cone-wind { animation: wind 1.2s linear infinite; }
-@keyframes wind { to { transform: translateY(-12px); } }
-.bob { transform-box: fill-box; transform-origin: center; animation: bob 3s ease-in-out infinite; }
-.bob.d2 { animation-delay: -1s; } .bob.d3 { animation-delay: -2s; }
-@keyframes bob { 50% { transform: translateY(-6px); } }
-
-.fiber { position: absolute; width: 2px; height: 26px; border-radius: 2px; background: linear-gradient(transparent, rgba(255,255,255,.55), transparent); animation: rise linear infinite; opacity: .0; }
-@keyframes rise { 0% { transform: translateY(110vh) rotate(0); opacity: 0; } 10% { opacity: .7; } 90% { opacity: .5; } 100% { transform: translateY(-20vh) rotate(160deg); opacity: 0; } }
-
-/* login card */
-.wrap { position: relative; z-index: 2; min-height: 100vh; display: flex; align-items: center; justify-content: flex-start; padding: 2rem 6vw; }
-.login-card { width: 100%; max-width: 410px; padding: 2.2rem 2rem; border-radius: 22px; color: #e2e8f0;
-  background: linear-gradient(160deg, rgba(255,255,255,.12), rgba(255,255,255,.04)); border: 1px solid rgba(255,255,255,.14);
-  backdrop-filter: blur(16px); box-shadow: 0 30px 80px rgba(0,0,0,.45); animation: cardIn .9s cubic-bezier(.2,.8,.2,1) both; }
-@keyframes cardIn { from { opacity: 0; transform: translateY(30px) scale(.97); } to { opacity: 1; transform: none; } }
-.logo-ring { width: 120px; height: 120px; margin: 0 auto 1rem; border-radius: 50%; display: grid; place-items: center; position: relative;
-  background: radial-gradient(circle, rgba(34,184,216,.25), rgba(34,184,216,0) 70%); }
-.logo-ring::before { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px dashed rgba(34,184,216,.6); animation: spin 18s linear infinite; }
-.logo-ring img { width: 96px; height: 96px; object-fit: contain; background: radial-gradient(circle, #fff 62%, #e2e8f0); border-radius: 50%; padding: 6px; box-shadow: 0 0 30px rgba(34,184,216,.35); animation: brandIn 1s ease both .2s; }
-.login-card h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: 1px; text-align: center; direction: ltr; margin: 0;
-  background: linear-gradient(90deg, #fff, #7dd3fc, #fff); background-size: 200% auto; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shine 5s linear infinite; }
-@keyframes shine { to { background-position: 200% center; } }
-.login-card .sub { text-align: center; color: #94a3b8; margin: .25rem 0 1.6rem; font-size: .92rem; }
-.field { position: relative; margin-bottom: 1rem; animation: reveal .6s ease both; }
-.field:nth-of-type(2) { animation-delay: .1s; }
-.field i { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: #7dd3fc; font-size: 1.1rem; }
-.field input { width: 100%; height: 52px; border-radius: 14px; border: 1px solid rgba(255,255,255,.16); background: rgba(6, 13, 24, .55);
-  color: #fff; padding: 0 44px 0 14px; font-size: 1rem; transition: border-color .2s, box-shadow .2s, background .2s; }
-.field input::placeholder { color: #64748b; }
-.field input:focus { outline: none; border-color: #22b8d8; box-shadow: 0 0 0 4px rgba(34,184,216,.18); background: rgba(6, 13, 24, .75); }
-.toggle-pass { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: #94a3b8; }
-.btn-login { width: 100%; height: 52px; border: 0; border-radius: 14px; font-weight: 800; font-size: 1.05rem; color: #fff; position: relative; overflow: hidden;
-  background: linear-gradient(135deg, #22b8d8, #2563eb); box-shadow: 0 10px 30px rgba(37,99,235,.45); transition: transform .15s, box-shadow .2s; }
-.btn-login:hover { transform: translateY(-1px); box-shadow: 0 14px 34px rgba(37,99,235,.55); }
-.btn-login::after { content: ""; position: absolute; top: 0; left: -60%; width: 40%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
-  transform: skewX(-20deg); animation: sweep 3.2s ease-in-out infinite; }
-@keyframes sweep { 60%, 100% { left: 130%; } }
-.btn-login .spin { display: none; width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto; }
-.btn-login.loading span { display: none; } .btn-login.loading .spin { display: block; }
-.err { background: rgba(239,68,68,.15); border: 1px solid rgba(239,68,68,.4); color: #fecaca; border-radius: 12px; padding: .6rem .9rem; margin-bottom: 1rem; animation: shake .45s ease; }
+.btn-go.loading .tx { display: none; } .btn-go.loading .sp { display: block; }
+.err { display: flex; gap: .5rem; align-items: center; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 12px; padding: .7rem .9rem; margin-bottom: 1rem; animation: shake .45s ease; }
 @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
-.foot { text-align: center; color: #64748b; font-size: .78rem; margin-top: 1.4rem; }
-.tagline { position: absolute; z-index: 2; left: 6vw; bottom: 7vh; color: #cbd5e1; max-width: 420px; animation: reveal 1s ease both .5s; }
-.tagline b { display: block; font-size: 1.6rem; color: #fff; font-weight: 800; }
-@media (max-width: 991px) { .wrap { justify-content: center; } .tagline { display: none; } .scene { opacity: .35; } }
+.panel-foot { margin-top: 2.2rem; text-align: center; color: #94a3b8; font-size: .8rem; animation: up .7s ease both .8s; }
+.panel-foot .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-left: .35rem; box-shadow: 0 0 0 0 rgba(16,185,129,.6); animation: pulse 2s infinite; }
+@keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+
+/* ---------- photo showcase ---------- */
+.show { position: relative; overflow: hidden; background: #0a1422; }
+.slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1.6s ease; }
+.slide.on { opacity: 1; }
+.slide img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.12); }
+.slide.on img { animation: kb 9s ease-out forwards; }
+.slide:nth-child(even).on img { animation-name: kb2; }
+@keyframes kb { from { transform: scale(1.18) translate(2%, 1%); } to { transform: scale(1.04) translate(0, 0); } }
+@keyframes kb2 { from { transform: scale(1.04) translate(-1%, 0); } to { transform: scale(1.18) translate(1%, -2%); } }
+.show::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(0deg, rgba(5,12,22,.92) 0%, rgba(5,12,22,.35) 45%, rgba(5,12,22,.15) 70%, rgba(5,12,22,.55) 100%),
+              linear-gradient(90deg, rgba(14,116,144,.25), transparent 40%); }
+/* fine thread lines drifting across the photos */
+.threads { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: .5; }
+.threads path { fill: none; stroke: url(#tg); stroke-width: 1.2; stroke-dasharray: 2 14; animation: run 7s linear infinite; }
+.threads path:nth-child(3) { animation-duration: 10s; } .threads path:nth-child(4) { animation-duration: 13s; }
+@keyframes run { to { stroke-dashoffset: -320; } }
+
+.top-strip { position: absolute; top: 1.6rem; left: 2rem; right: 2rem; z-index: 3; display: flex; justify-content: space-between; align-items: center; color: #e2e8f0; }
+.badge-live { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2); backdrop-filter: blur(8px); border-radius: 999px; padding: .4rem .9rem; font-size: .82rem; }
+.caption { position: absolute; z-index: 3; right: clamp(2rem, 5vw, 5rem); left: clamp(2rem, 5vw, 5rem); bottom: 7.5rem; color: #fff; max-width: 640px; }
+.caption .step { display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; color: #67e8f9; letter-spacing: .5px; font-size: .9rem; }
+.caption .step .n { width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid #67e8f9; display: grid; place-items: center; font-size: .85rem; }
+.caption h2 { font-size: clamp(2rem, 3.4vw, 3.2rem); font-weight: 800; margin: .5rem 0 .4rem; line-height: 1.15; text-shadow: 0 4px 24px rgba(0,0,0,.4); }
+.caption p { font-size: 1.1rem; color: #cbd5e1; margin: 0; }
+.caption > * { opacity: 0; transform: translateY(18px); }
+.caption.in > * { animation: capIn .8s cubic-bezier(.2,.8,.2,1) forwards; }
+.caption.in > *:nth-child(2) { animation-delay: .12s; } .caption.in > *:nth-child(3) { animation-delay: .24s; }
+@keyframes capIn { to { opacity: 1; transform: none; } }
+
+/* process timeline */
+.timeline { position: absolute; z-index: 3; bottom: 2.4rem; right: clamp(2rem, 5vw, 5rem); left: clamp(2rem, 5vw, 5rem); display: flex; gap: .6rem; }
+.timeline button { flex: 1; border: 0; background: none; padding: 0; text-align: right; color: #94a3b8; font-size: .8rem; font-weight: 700; cursor: pointer; }
+.timeline .track { height: 3px; background: rgba(255,255,255,.18); border-radius: 3px; overflow: hidden; margin-bottom: .45rem; }
+.timeline .fill { height: 100%; width: 0; background: linear-gradient(90deg, #22b8d8, #67e8f9); }
+.timeline button.done .fill { width: 100%; }
+.timeline button.on { color: #fff; }
+.timeline button.on .fill { animation: fill var(--dur) linear forwards; }
+@keyframes fill { to { width: 100%; } }
+
+@media (max-width: 991px) {
+  .login-shell { display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .show { position: fixed; inset: 0; }
+  .panel { margin: 0; width: 100%; max-width: 440px; min-width: 0; border-radius: 20px; padding: 2.2rem 1.6rem; height: auto; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+  .caption, .timeline, .top-strip { display: none; }
+  .panel { animation-name: up; }
+}
+@media (prefers-reduced-motion: reduce) { .slide.on img, .threads path { animation: none !important; } }
 </style>
 </head>
 <body>
-<div class="stage">
-  <div class="grid"></div>
-  <!-- animated yarn machine: bobbins feed threads through guides to winding cones, gears turning -->
-  <svg class="scene" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <defs>
-      <linearGradient id="cone" x1="0" x2="1"><stop offset="0" stop-color="#e2e8f0"/><stop offset=".5" stop-color="#ffffff"/><stop offset="1" stop-color="#cbd5e1"/></linearGradient>
-      <linearGradient id="thr" x1="0" x2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".1"/><stop offset=".5" stop-color="#7dd3fc"/><stop offset="1" stop-color="#22d3ee" stop-opacity=".1"/></linearGradient>
-      <pattern id="windings" width="8" height="12" patternUnits="userSpaceOnUse"><rect width="8" height="12" fill="url(#cone)"/><path d="M0 6h8" stroke="#94a3b8" stroke-opacity=".5"/></pattern>
-      <clipPath id="c1"><path d="M0 0h70l25 150H-25z"/></clipPath>
-      <g id="gearShape"><path fill="currentColor" d="M50 0l6 12a40 40 0 0 1 12 5l13-4 7 12-9 10a40 40 0 0 1 0 13l9 10-7 12-13-4a40 40 0 0 1-12 5l-6 12H36l-6-12a40 40 0 0 1-12-5l-13 4-7-12 9-10a40 40 0 0 1 0-13l-9-10 7-12 13 4a40 40 0 0 1 12-5l6-12z" transform="translate(-43 -43)"/><circle r="14" fill="#07111f"/></g>
-    </defs>
-
-    <!-- gears -->
-    <g color="#1e3a5f" transform="translate(1460 140) scale(1.7)"><use href="#gearShape" class="gear"/></g>
-    <g color="#16304f" transform="translate(1318 268) scale(1.05)"><use href="#gearShape" class="gear rev"/></g>
-    <g color="#132a45" transform="translate(150 790) scale(1.3)"><use href="#gearShape" class="gear"/></g>
-
-    <!-- machine on the left, threads running right toward the login card (mirrored group) -->
-    <g transform="translate(1600 0) scale(-1 1)">
-      <path class="thread" stroke="url(#thr)" d="M1180 300 C 1000 160, 820 420, 620 250 S 260 200, -40 300"/>
-      <path class="thread t2" stroke="url(#thr)" d="M1290 340 C 1080 240, 900 500, 660 340 S 300 300, -40 400"/>
-      <path class="thread t3" stroke="url(#thr)" d="M1400 380 C 1180 300, 980 560, 720 420 S 340 380, -40 500"/>
-      <path class="thread t4" stroke="url(#thr)" stroke-opacity=".6" d="M1500 160 C 1250 120, 1050 280, 820 190 S 400 140, -40 220"/>
-      <g transform="translate(1135 300)"><g class="bob"><g clip-path="url(#c1)"><rect class="cone-wind" x="-30" y="0" width="130" height="170" fill="url(#windings)"/></g><rect x="20" y="-14" width="30" height="16" rx="4" fill="#f59e0b"/></g></g>
-      <g transform="translate(1245 340)"><g class="bob d2"><g clip-path="url(#c1)"><rect class="cone-wind" x="-30" y="0" width="130" height="170" fill="url(#windings)"/></g><rect x="20" y="-14" width="30" height="16" rx="4" fill="#22b8d8"/></g></g>
-      <g transform="translate(1355 380)"><g class="bob d3"><g clip-path="url(#c1)"><rect class="cone-wind" x="-30" y="0" width="130" height="170" fill="url(#windings)"/></g><rect x="20" y="-14" width="30" height="16" rx="4" fill="#a78bfa"/></g></g>
-      <rect x="1080" y="540" width="420" height="14" rx="7" fill="#1e3a5f"/>
-    </g>
-  </svg>
-  <div id="fibers"></div>
-</div>
-
-<div class="wrap">
-  <div class="login-card">
-    <div class="logo-ring"><img src="<?= e($logoSrc) ?>" alt=""></div>
-    <h1><?= e($company) ?></h1>
-    <div class="sub">نظام إدارة مصنع الخيوط — الإنتاج والمخزن والمبيعات</div>
-    <?php if ($error): ?><div class="err"><i class="bi bi-exclamation-triangle"></i> <?= e($error) ?></div><?php endif; ?>
-    <form method="post" id="loginForm" autocomplete="on">
+<div class="login-shell">
+  <section class="panel">
+    <img class="brand-logo" src="<?= e($logoFull) ?>" alt="<?= e($company) ?>">
+    <div class="welcome"><h1>أهلاً بيك 👋</h1><p>سجّل دخولك لنظام إدارة المصنع</p></div>
+    <?php if ($error): ?><div class="err"><i class="bi bi-exclamation-octagon"></i><?= e($error) ?></div><?php endif; ?>
+    <form method="post" id="f" autocomplete="on">
       <?= csrf_field() ?>
-      <div class="field"><i class="bi bi-person"></i><input name="username" placeholder="اسم المستخدم" required autofocus value="<?= e($_POST['username'] ?? '') ?>"></div>
-      <div class="field"><i class="bi bi-lock"></i><input name="password" id="pw" type="password" placeholder="كلمة المرور" required>
-        <button type="button" class="toggle-pass" onclick="const p=document.getElementById('pw');p.type=p.type==='password'?'text':'password';this.firstElementChild.className=p.type==='password'?'bi bi-eye':'bi bi-eye-slash'"><i class="bi bi-eye"></i></button></div>
-      <button class="btn-login" id="btnLogin"><span><i class="bi bi-box-arrow-in-left"></i> دخول</span><div class="spin"></div></button>
+      <div class="fl"><input name="username" id="u" placeholder=" " required autofocus autocomplete="username" value="<?= e($_POST['username'] ?? '') ?>"><label for="u">اسم المستخدم</label><i class="bi bi-person"></i></div>
+      <div class="fl"><input name="password" id="pw" type="password" placeholder=" " required autocomplete="current-password"><label for="pw">كلمة المرور</label><i class="bi bi-shield-lock"></i>
+        <button type="button" class="eye" id="eye" aria-label="إظهار كلمة المرور"><i class="bi bi-eye"></i></button></div>
+      <button class="btn-go" id="go"><span class="tx"><i class="bi bi-box-arrow-in-left ms-1"></i> تسجيل الدخول</span><span class="sp"></span></button>
     </form>
-    <div class="foot">© <?= date('Y') ?> <?= e($company) ?> — مدينة بدر</div>
-  </div>
-</div>
-<div class="tagline"><b>من البوي للكونة… كل كيلو محسوب.</b>متابعة الخام والإنتاج والميزان والمبيعات في مكان واحد.</div>
+    <div class="panel-foot"><span class="dot"></span>السيرفر شغال — <?= e($company) ?> © <?= date('Y') ?> — مدينة بدر</div>
+  </section>
 
+  <section class="show" aria-hidden="true">
+    <?php foreach ($slides as $i => $s): ?>
+      <div class="slide<?= $i === 0 ? ' on' : '' ?>"><img src="assets/login/<?= e($s[0]) ?>?v=<?= filemtime(__DIR__ . '/assets/login/' . $s[0]) ?>" alt=""></div>
+    <?php endforeach; ?>
+    <svg class="threads" viewBox="0 0 1000 600" preserveAspectRatio="none">
+      <defs><linearGradient id="tg" x1="0" x2="1"><stop offset="0" stop-color="#67e8f9" stop-opacity="0"/><stop offset=".5" stop-color="#e0f2fe"/><stop offset="1" stop-color="#67e8f9" stop-opacity="0"/></linearGradient></defs>
+      <path d="M0 140 C 250 80, 420 230, 650 150 S 900 90, 1000 130"/>
+      <path d="M0 210 C 220 160, 460 300, 700 220 S 920 170, 1000 200"/>
+      <path d="M0 280 C 260 230, 480 360, 720 290 S 930 250, 1000 270"/>
+    </svg>
+    <div class="top-strip">
+      <span class="badge-live"><i class="bi bi-geo-alt"></i> مدينة بدر — مصنع خيوط البوليستر</span>
+      <span class="badge-live" id="clock"></span>
+    </div>
+    <div class="caption" id="cap"><div class="step"><span class="n" id="capN">1</span><span id="capK"></span></div><h2 id="capT"></h2><p id="capD"></p></div>
+    <div class="timeline" id="tl">
+      <?php foreach ($slides as $i => $s): ?><button type="button" data-i="<?= $i ?>"><div class="track"><div class="fill"></div></div><?= e($s[1]) ?></button><?php endforeach; ?>
+    </div>
+  </section>
+</div>
 <script>
-document.getElementById('loginForm').addEventListener('submit', () => document.getElementById('btnLogin').classList.add('loading'));
-// floating fibers
-const box = document.getElementById('fibers');
-for (let i = 0; i < 26; i++) {
-  const f = document.createElement('span');
-  f.className = 'fiber';
-  f.style.left = Math.random() * 100 + 'vw';
-  f.style.animationDuration = 9 + Math.random() * 12 + 's';
-  f.style.animationDelay = -Math.random() * 20 + 's';
-  f.style.height = 14 + Math.random() * 28 + 'px';
-  box.appendChild(f);
-}
+(() => {
+  const slides = <?= json_encode(array_map(fn($s) => ['k' => $s[1], 't' => $s[2], 'd' => $s[3]], $slides), JSON_UNESCAPED_UNICODE) ?>;
+  const els = document.querySelectorAll('.slide'), btns = document.querySelectorAll('#tl button'), cap = document.getElementById('cap');
+  const DUR = 6500; let cur = -1, timer;
+  document.documentElement.style.setProperty('--dur', DUR + 'ms');
+  function go(i) {
+    if (!slides.length) return;
+    cur = (i + slides.length) % slides.length;
+    els.forEach((e, j) => e.classList.toggle('on', j === cur));
+    btns.forEach((b, j) => { b.classList.toggle('on', j === cur); b.classList.toggle('done', j < cur); const f = b.querySelector('.fill'); f.style.animation = 'none'; f.offsetWidth; f.style.animation = ''; });
+    const s = slides[cur];
+    cap.classList.remove('in'); void cap.offsetWidth;
+    document.getElementById('capN').textContent = cur + 1;
+    document.getElementById('capK').textContent = s.k;
+    document.getElementById('capT').textContent = s.t;
+    document.getElementById('capD').textContent = s.d;
+    cap.classList.add('in');
+    clearTimeout(timer); timer = setTimeout(() => go(cur + 1), DUR);
+  }
+  btns.forEach(b => b.addEventListener('click', () => go(+b.dataset.i)));
+  go(0);
+
+  const clock = document.getElementById('clock');
+  const tick = () => clock.innerHTML = '<i class="bi bi-clock"></i> ' + new Date().toLocaleString('ar-EG', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+  tick(); setInterval(tick, 30000);
+
+  document.getElementById('eye').addEventListener('click', function () {
+    const p = document.getElementById('pw'); p.type = p.type === 'password' ? 'text' : 'password';
+    this.firstElementChild.className = p.type === 'password' ? 'bi bi-eye' : 'bi bi-eye-slash';
+  });
+  document.getElementById('f').addEventListener('submit', () => document.getElementById('go').classList.add('loading'));
+})();
 </script>
 </body>
 </html>

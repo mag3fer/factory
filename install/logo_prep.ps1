@@ -9,7 +9,7 @@ using System; using System.Drawing; using System.Drawing.Imaging; using System.C
 public static class LogoTool {
   static bool IsBg(Color c) {
     int mx = Math.Max(c.R, Math.Max(c.G, c.B)), mn = Math.Min(c.R, Math.Min(c.G, c.B));
-    return mx > 188 && (mx - mn) < 22;
+    return mx > 170 && (mx - mn) < 30;
   }
   public static Bitmap Crop(Bitmap src, Rectangle r) { return src.Clone(r, PixelFormat.Format32bppArgb); }
   // remove background reachable from the border; soften the edge
@@ -29,6 +29,15 @@ public static class LogoTool {
       bool edge = b.GetPixel(x + 1, y).A == 0 || b.GetPixel(x - 1, y).A == 0 || b.GetPixel(x, y + 1).A == 0 || b.GetPixel(x, y - 1).A == 0;
       if (edge) { int mx = Math.Max(c.R, Math.Max(c.G, c.B)); if (mx > 160) b.SetPixel(x, y, Color.FromArgb(Math.Max(40, 255 - (mx - 160) * 2), c)); }
     }
+  }
+  // remove edge-connected background, then flatten onto white (keeps light parts inside the emblem)
+  public static Bitmap OnWhite(Bitmap b, bool gray) {
+    RemoveBg(b);
+    var o = new Bitmap(b.Width, b.Height, PixelFormat.Format32bppArgb);
+    using (var g = Graphics.FromImage(o)) { g.Clear(Color.White); g.DrawImage(b, 0, 0, b.Width, b.Height); }
+    if (gray) for (int y = 0; y < o.Height; y++) for (int x = 0; x < o.Width; x++) {
+      var c = o.GetPixel(x, y); int l = (int)(c.R * .3 + c.G * .59 + c.B * .11); l = l > 200 ? 255 : (int)(l * 0.75); o.SetPixel(x, y, Color.FromArgb(255, l, l, l)); }
+    return o;
   }
   public static void Whiten(Bitmap b, bool gray) {
     for (int y = 0; y < b.Height; y++) for (int x = 0; x < b.Width; x++) {
@@ -55,7 +64,7 @@ $mark = [LogoTool]::Crop($img, (New-Object System.Drawing.Rectangle 535, 0, 510,
 [LogoTool]::RemoveBg($mark)
 $sq = [LogoTool]::Square($mark, 256); $sq.Save("$OutDir\logo-mark.png", [System.Drawing.Imaging.ImageFormat]::Png)
 $full = [LogoTool]::Crop($img, (New-Object System.Drawing.Rectangle 410, 0, 760, 656))
-[LogoTool]::Whiten($full, $false); $full.Save("$OutDir\logo-full.png", [System.Drawing.Imaging.ImageFormat]::Png)
+$full = [LogoTool]::OnWhite($full, $false); $full.Save("$OutDir\logo-full.png", [System.Drawing.Imaging.ImageFormat]::Png)
 $lab = [LogoTool]::Crop($img, (New-Object System.Drawing.Rectangle 410, 0, 760, 656))
-[LogoTool]::Whiten($lab, $true); $lab.Save("$OutDir\logo-label.png", [System.Drawing.Imaging.ImageFormat]::Png)
+$lab = [LogoTool]::OnWhite($lab, $true); $lab.Save("$OutDir\logo-label.png", [System.Drawing.Imaging.ImageFormat]::Png)
 "done"
