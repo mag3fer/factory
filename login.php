@@ -83,8 +83,6 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
 .btn-go { width: 100%; height: 54px; border: 0; border-radius: 12px; color: #fff; font-weight: 800; font-size: 1.05rem; position: relative; overflow: hidden;
   background: linear-gradient(135deg, #0b1726, #12345a 55%, #0e7490); box-shadow: 0 12px 28px rgba(14,116,144,.32); transition: transform .15s, box-shadow .2s; animation: up .7s ease both .65s; }
 .btn-go:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(14,116,144,.42); }
-.btn-go::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%); transform: translateX(-100%); animation: sheen 3.5s ease-in-out infinite 1.5s; }
-@keyframes sheen { 40%, 100% { transform: translateX(100%); } }
 .btn-go .sp { display: none; width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .btn-go.loading .tx { display: none; } .btn-go.loading .sp { display: block; }
