@@ -59,8 +59,9 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
 .panel { position: relative; z-index: 3; background: #fff; display: flex; flex-direction: column; justify-content: center; padding: 3rem clamp(2rem, 4vw, 4.5rem);
   box-shadow: 30px 0 80px rgba(0,0,0,.35); animation: panelIn .9s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes panelIn { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
-.panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: linear-gradient(90deg, #0e7490, #22b8d8, #2563eb, #0e7490); background-size: 200% 100%; animation: bar 6s linear infinite; }
-@keyframes bar { to { background-position: 200% 0; } }
+.panel::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 5px; z-index: 2; background: linear-gradient(90deg, #0e7490, #22b8d8, #2563eb, #0e7490, #22b8d8, #2563eb, #0e7490); background-size: 50% 100%; width: 200%; will-change: transform; animation: bar 6s linear infinite; }
+.panel { overflow: hidden; }
+@keyframes bar { from { transform: translateX(0); } to { transform: translateX(50%); } }
 .brand-logo { display: block; width: min(300px, 80%); margin: 0 auto 1.4rem; animation: logoIn 1.1s cubic-bezier(.2,.8,.2,1) both .15s; }
 @keyframes logoIn { from { opacity: 0; transform: scale(.85) translateY(10px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
 .welcome { text-align: center; margin-bottom: 1.8rem; animation: up .7s ease both .35s; }
@@ -83,14 +84,17 @@ body { margin: 0; background: #0a1422; overflow: hidden; }
 .btn-go { width: 100%; height: 54px; border: 0; border-radius: 12px; color: #fff; font-weight: 800; font-size: 1.05rem; position: relative; overflow: hidden;
   background: linear-gradient(135deg, #0b1726, #12345a 55%, #0e7490); box-shadow: 0 12px 28px rgba(14,116,144,.32); transition: transform .15s, box-shadow .2s; animation: up .7s ease both .65s; }
 .btn-go:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(14,116,144,.42); }
+.btn-go::after { content: ""; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.25) 50%, transparent 70%); transform: translateX(-100%); will-change: transform; animation: sheen 3.5s ease-in-out infinite 1.5s; }
+@keyframes sheen { 40%, 100% { transform: translateX(100%); } }
 .btn-go .sp { display: none; width: 22px; height: 22px; border: 3px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; margin: auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .btn-go.loading .tx { display: none; } .btn-go.loading .sp { display: block; }
 .err { display: flex; gap: .5rem; align-items: center; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 12px; padding: .7rem .9rem; margin-bottom: 1rem; animation: shake .45s ease; }
 @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
 .panel-foot { margin-top: 2.2rem; text-align: center; color: #94a3b8; font-size: .8rem; animation: up .7s ease both .8s; }
-.panel-foot .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-left: .35rem; box-shadow: 0 0 0 0 rgba(16,185,129,.6); animation: pulse 2s infinite; }
-@keyframes pulse { 70% { box-shadow: 0 0 0 9px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
+.panel-foot .dot { display: inline-block; position: relative; width: 8px; height: 8px; border-radius: 50%; background: #10b981; margin-left: .45rem; vertical-align: middle; }
+.panel-foot .dot::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: #10b981; will-change: transform, opacity; animation: pulse 2s ease-out infinite; }
+@keyframes pulse { from { transform: scale(1); opacity: .55; } to { transform: scale(3); opacity: 0; } }
 
 /* ---------- photo showcase ---------- */
 .show { position: relative; overflow: hidden; background: #0a1422; }
