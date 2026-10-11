@@ -77,8 +77,24 @@
     return { value, unstableFlag };
   }
 
+  // short beep like the old station: high tone = new weight ready, double tone = saved
+  let audio = null;
+  function beep(freq = 1800, ms = 120, times = 1) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      for (let i = 0; i < times; i++) {
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.frequency.value = freq; o.type = 'square'; g.gain.value = 0.15;
+        o.connect(g); g.connect(audio.destination);
+        const t = audio.currentTime + i * (ms + 60) / 1000;
+        o.start(t); o.stop(t + ms / 1000);
+      }
+    } catch (e) {}
+  }
+
   function onReading(r) {
     if (r.unstableFlag) return;
+    const wasFresh = fresh;
     if (r.value < 0.1) {             // empty scale: the next carton is new even if it weighs the same
       usedValue = null;
       liveGross = r.value; fresh = false;
@@ -91,6 +107,7 @@
     d.textContent = r.value.toFixed(2);
     d.classList.remove('offline');
     $('lastAt').textContent = 'آخر وزن وصل الساعة ' + new Date().toLocaleTimeString('ar-EG');
+    if (fresh && !wasFresh) beep();
     recalc();
   }
 
@@ -200,6 +217,7 @@
       });
       if (!r.ok) { showMsg(r.error, 'danger'); return; }
       showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو`, 'success');
+      beep(1200, 90, 2);
       printLabel(r.id);
       addRecent(r, g.value);
       $('manualGross').value = '';
@@ -208,6 +226,7 @@
       showMsg('مفيش اتصال بالسيرفر — الكرتونة ما اتسجلتش. جرّب تاني.', 'danger');
     } finally {
       saving = false;
+      document.activeElement?.blur();   // so the next Enter isn't swallowed by a focused dropdown
       recalc();
     }
   });
@@ -229,9 +248,12 @@
     if (b) printLabel(b.dataset.id);
   });
 
-  // keyboard: Enter saves (for the scale operator)
+  // keyboard: Enter saves and prints from anywhere on the page (like the old station)
   document.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !$('btnSave').disabled && document.activeElement.tagName !== 'SELECT') { e.preventDefault(); $('btnSave').click(); }
+    if (e.key !== 'Enter' || e.repeat) return;
+    e.preventDefault();
+    if (!$('btnSave').disabled) $('btnSave').click();
+    else beep(400, 200);   // low tone: nothing to save yet
   });
 
   recalc();
