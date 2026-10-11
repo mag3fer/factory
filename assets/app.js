@@ -1,5 +1,9 @@
 // Shared UI behaviour: live clock, animated counters, sidebar close on mobile.
 (() => {
+  // Bootstrap modals must live directly under <body>: the animated .content wrapper creates a
+  // stacking context that would put the dialog underneath the dark backdrop.
+  document.querySelectorAll('.modal').forEach(m => { if (m.parentElement !== document.body) document.body.appendChild(m); });
+
   const clock = document.getElementById('clock');
   if (clock) {
     const tick = () => { clock.textContent = new Date().toLocaleString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }); };
