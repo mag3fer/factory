@@ -11,13 +11,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $phone = trim($_POST['phone'] ?? '') ?: null;
     $notes = trim($_POST['notes'] ?? '') ?: null;
     $active = isset($_POST['active']) ? 1 : 0;
+    $ob = round((float)($_POST['opening_balance'] ?? 0), 2) * (($_POST['ob_side'] ?? 'owes') === 'owes' ? 1 : -1);
+    $obDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['opening_date'] ?? '') ? $_POST['opening_date'] : null;
     if ($name === '' || !in_array($type, ['supplier', 'customer'], true)) {
         flash('الاسم والنوع مطلوبين', 'danger');
         redirect('parties.php');
     }
     try {
-        if ($id) q('UPDATE parties SET code=?, name=?, type=?, phone=?, notes=?, active=? WHERE id=?', [$code, $name, $type, $phone, $notes, $active, $id]);
-        else q('INSERT INTO parties (code, name, type, phone, notes, active) VALUES (?,?,?,?,?,?)', [$code, $name, $type, $phone, $notes, $active]);
+        if ($id) q('UPDATE parties SET code=?, name=?, type=?, phone=?, notes=?, active=?, opening_balance=?, opening_date=? WHERE id=?', [$code, $name, $type, $phone, $notes, $active, $ob, $obDate, $id]);
+        else q('INSERT INTO parties (code, name, type, phone, notes, active, opening_balance, opening_date) VALUES (?,?,?,?,?,?,?,?)', [$code, $name, $type, $phone, $notes, $active, $ob, $obDate]);
         flash('تم الحفظ');
     } catch (PDOException $ex) {
         flash('الكود ده مستخدم قبل كده', 'danger');
@@ -45,14 +47,18 @@ require __DIR__ . '/inc/header.php';
     <div class="col-md-2"><input name="phone" class="form-control" placeholder="الموبايل" value="<?= e($edit['phone'] ?? '') ?>"></div>
     <div class="col-md-2"><input name="notes" class="form-control" placeholder="ملاحظات" value="<?= e($edit['notes'] ?? '') ?>"></div>
     <div class="col-md-1 d-flex align-items-center gap-2"><input type="checkbox" name="active" class="form-check-input"<?= ($edit['active'] ?? 1) ? ' checked' : '' ?>> نشط</div>
+    <?php $ob = (float)($edit['opening_balance'] ?? 0); ?>
+    <div class="col-md-3"><div class="input-group"><span class="input-group-text">رصيد افتتاحي</span><input name="opening_balance" type="number" step="0.01" min="0" class="form-control num" value="<?= $ob ? e((string)abs($ob)) : '' ?>"></div></div>
+    <div class="col-md-2"><select name="ob_side" class="form-select"><option value="owes"<?= $ob >= 0 ? ' selected' : '' ?>>عليه (مديون لنا)</option><option value="credit"<?= $ob < 0 ? ' selected' : '' ?>>له (احنا مديونين له)</option></select></div>
+    <div class="col-md-2"><input name="opening_date" type="date" class="form-control" title="تاريخ الرصيد الافتتاحي" value="<?= e($edit['opening_date'] ?? '') ?>"></div>
     <div class="col-12"><button class="btn btn-success"><?= $edit ? 'حفظ التعديل' : '+ إضافة' ?></button><?php if ($edit): ?> <a href="parties.php?type=<?= $type ?>" class="btn btn-secondary">إلغاء</a><?php endif; ?></div>
   </form>
 </div>
 <div class="card p-0">
 <table class="table table-sm table-hover mb-0">
-  <thead class="table-light"><tr><th>الكود</th><th>الاسم</th><th>الموبايل</th><th>ملاحظات</th><th></th></tr></thead>
+  <thead class="table-light"><tr><th>الكود</th><th>الاسم</th><th>الموبايل</th><th>رصيد افتتاحي</th><th>ملاحظات</th><th></th></tr></thead>
   <?php foreach ($rows as $r): ?>
-    <tr class="<?= $r['active'] ? '' : 'text-muted' ?>"><td><?= e($r['code']) ?></td><td><?= e($r['name']) ?></td><td><?= e($r['phone']) ?></td><td><?= e($r['notes']) ?></td>
+    <tr class="<?= $r['active'] ? '' : 'text-muted' ?>"><td><?= e($r['code']) ?></td><td><?= e($r['name']) ?></td><td><?= e($r['phone']) ?></td><td class="num"><?= (float)$r['opening_balance'] ? fmt_qty($r['opening_balance'], 2) : '' ?></td><td><?= e($r['notes']) ?></td>
       <td><a class="btn btn-sm btn-outline-primary" href="?type=<?= $type ?>&edit=<?= $r['id'] ?>">تعديل</a></td></tr>
   <?php endforeach; ?>
 </table>
