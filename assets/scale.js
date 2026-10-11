@@ -255,9 +255,74 @@
   // keyboard: Enter saves and prints from anywhere on the page (like the old station)
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || e.repeat) return;
+    if (document.querySelector('.modal.show')) {   // Enter inside the weights dialog = save the dialog
+      if (e.target.id === 'ptAdminPass') { e.preventDefault(); $('ptSave').click(); }
+      return;
+    }
     e.preventDefault();
     if (!$('btnSave').disabled) $('btnSave').click();
     else beep(400, 200);   // low tone: nothing to save yet
+  });
+
+  // ---------- edit packing types (needs the admin password on save) ----------
+  const ptData = JSON.parse($('ptData').textContent);
+  const ptModal = new bootstrap.Modal($('packingModal'));
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function ptRow(t) {
+    const packs = ['<option value="">—</option>'].concat(ptData.packs.map(p =>
+      `<option value="${p.id}"${Number(t.pack_item_id) === Number(p.id) ? ' selected' : ''}>${esc(p.code + ' — ' + p.name)}</option>`)).join('');
+    const num = (k, v) => `<input type="number" step="0.001" min="0" class="form-control form-control-sm num" data-k="${k}" value="${v ?? ''}">`;
+    const tr = document.createElement('tr');
+    tr.dataset.id = t.id || 0;
+    tr.innerHTML = `<td><input class="form-control form-control-sm" data-k="name" value="${esc(t.name)}"></td>
+      <td><select class="form-select form-select-sm" data-k="pack_item_id">${packs}</select></td>
+      <td>${num('cone_weight', t.cone_weight)}</td><td>${num('pack_weight', t.pack_weight)}</td><td>${num('bag_weight', t.bag_weight)}</td>
+      <td><input type="checkbox" class="form-check-input" data-k="active"${t.active == 0 ? '' : ' checked'}></td>`;
+    return tr;
+  }
+
+  function fillPacking(types) {
+    ptData.types = types;
+    const sel = $('packing'), cur = sel.value;
+    sel.innerHTML = '<option value="">— اختر —</option>' + types.filter(t => Number(t.active)).map(t =>
+      `<option value="${t.id}" data-cone="${t.cone_weight}" data-pack="${t.pack_weight}" data-bag="${t.bag_weight}">${esc(t.name)}</option>`).join('');
+    sel.value = cur;
+    recalc();
+  }
+
+  $('btnEditPacking').addEventListener('click', e => {
+    e.preventDefault();
+    const tb = $('ptTable').querySelector('tbody');
+    tb.innerHTML = '';
+    ptData.types.forEach(t => tb.appendChild(ptRow(t)));
+    $('ptAdminPass').value = '';
+    $('ptMsg').innerHTML = '';
+    ptModal.show();
+  });
+  $('ptAdd').addEventListener('click', () => $('ptTable').querySelector('tbody').appendChild(ptRow({ id: 0, name: '', active: 1 })));
+
+  $('ptSave').addEventListener('click', async () => {
+    const rows = [...$('ptTable').querySelectorAll('tbody tr')].map(tr => {
+      const r = { id: Number(tr.dataset.id) };
+      tr.querySelectorAll('[data-k]').forEach(el => { r[el.dataset.k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value; });
+      return r;
+    });
+    if (!$('ptAdminPass').value) { $('ptMsg').innerHTML = '<div class="text-danger">اكتب باسورد المدير</div>'; return; }
+    $('ptSave').disabled = true;
+    try {
+      const body = new URLSearchParams({ csrf: CSRF, admin_password: $('ptAdminPass').value, rows: JSON.stringify(rows) });
+      const r = await (await fetch('api_packing.php', { method: 'POST', body })).json();
+      if (!r.ok) { $('ptMsg').innerHTML = `<div class="text-danger">${esc(r.error)}</div>`; return; }
+      fillPacking(r.types);
+      ptModal.hide();
+      showMsg(`تم حفظ أوزان التعبئة (وافق: ${esc(r.approved_by)})`, 'info');
+    } catch (e) {
+      $('ptMsg').innerHTML = '<div class="text-danger">مفيش اتصال بالسيرفر</div>';
+    } finally {
+      $('ptSave').disabled = false;
+      $('ptAdminPass').value = '';
+    }
   });
 
   recalc();

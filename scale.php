@@ -5,7 +5,9 @@ $u = require_role('scale');
 $finished = items_by_type('finished');
 $raws = items_by_type('raw');
 $cones = items_by_type('cone');
-$packingTypes = q('SELECT * FROM packing_types WHERE active=1 ORDER BY id')->fetchAll();
+$allPackingTypes = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active FROM packing_types ORDER BY id')->fetchAll();
+$packingTypes = array_values(array_filter($allPackingTypes, fn($t) => $t['active']));
+$packItems = q("SELECT id, code, name FROM items WHERE type='pack' AND active=1 ORDER BY code")->fetchAll();
 $recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.status, p.created_at, i.code, i.name
              FROM packages p JOIN items i ON i.id=p.finished_item_id
              WHERE DATE(p.created_at)=CURDATE() ORDER BY p.id DESC LIMIT 15")->fetchAll();
@@ -56,7 +58,8 @@ require __DIR__ . '/inc/header.php';
       <div class="row g-2">
         <div class="col-md-8"><label class="form-label">النمرة (الخيط التام)</label><select id="finished" class="form-select form-select-lg"><option value="">— اختر —</option><?= opt($finished) ?></select></div>
         <div class="col-md-4"><label class="form-label">البوي (الخام)</label><select id="raw" class="form-select"><option value="">—</option><?= opt($raws) ?></select></div>
-        <div class="col-md-5"><label class="form-label">نوع التعبئة</label><select id="packing" class="form-select"><option value="">— اختر —</option>
+        <div class="col-md-5"><label class="form-label d-flex justify-content-between">نوع التعبئة
+            <a href="#" id="btnEditPacking" class="small">تعديل الأوزان</a></label><select id="packing" class="form-select"><option value="">— اختر —</option>
           <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones) ?></select></div>
         <div class="col-md-2"><label class="form-label">عدد الكونات</label><input id="conesCount" type="number" min="0" class="form-control num" value="<?= e(setting('default_cones', '6')) ?>"></div>
@@ -78,5 +81,24 @@ require __DIR__ . '/inc/header.php';
     </div>
   </div>
 </div>
+<div class="modal fade" id="packingModal" tabindex="-1">
+  <div class="modal-dialog modal-xl"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">أنواع التعبئة — أوزان الفوارغ (كيلو)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="small text-muted mb-2">الفوارغ = عدد الكونات × وزن الكونة + وزن الكرتونة/الشكارة + عدد الكونات × وزن الكيس. التعديل مش بيغيّر الكراتين اللي اتسجلت قبل كده.</div>
+      <table class="table table-sm align-middle" id="ptTable">
+        <thead><tr><th>الاسم</th><th>الكرتونة/الشكارة (مخزن)</th><th>وزن الكونة</th><th>وزن الكرتونة/الشكارة</th><th>وزن الكيس</th><th>نشط</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="ptAdd">+ نوع جديد</button>
+    </div>
+    <div class="modal-footer">
+      <input type="password" id="ptAdminPass" class="form-control w-auto" placeholder="باسورد المدير" autocomplete="off">
+      <button type="button" class="btn btn-success" id="ptSave">حفظ</button>
+      <div id="ptMsg" class="w-100"></div>
+    </div>
+  </div></div>
+</div>
+<script type="application/json" id="ptData"><?= json_encode(['types' => $allPackingTypes, 'packs' => $packItems], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?></script>
 <iframe id="printFrame" style="position:absolute;width:0;height:0;border:0;left:-9999px"></iframe>
 <?php require __DIR__ . '/inc/footer.php';
