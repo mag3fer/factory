@@ -1,0 +1,15 @@
+body { background: #f4f6f9; font-family: Tahoma, "Segoe UI", Arial, sans-serif; }
+.card { border: 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.table td, .table th { vertical-align: middle; }
+.num { direction: ltr; unicode-bidi: embed; font-variant-numeric: tabular-nums; }
+.kpi .value { font-size: 1.6rem; font-weight: 700; }
+.neg { color: #c0392b; }
+
+/* scale station */
+.scale-display { font-size: 4rem; font-weight: 700; direction: ltr; background: #111; color: #39ff14; border-radius: .5rem; padding: .25rem 1rem; text-align: center; font-family: Consolas, monospace; }
+.scale-display.unstable { color: #f1c40f; }
+.scale-display.offline { color: #777; }
+.big-net { font-size: 2.6rem; font-weight: 700; direction: ltr; }
+.btn-xl { font-size: 1.6rem; padding: .8rem 1.5rem; }
+
+@media print { .no-print { display: none !important; } body { background: #fff; } }
