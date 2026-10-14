@@ -77,7 +77,7 @@ function next_package_serial(): string
 }
 
 /**
- * Save one weighed carton/sack: finished yarn in, cones and the carton/sack out.
+ * Save one weighed carton/sack: finished yarn in; cones, the carton/sack and the net weight of raw POY out.
  * Tare comes from the packing type (same table as the old station's boxing.txt) and is
  * recomputed here — the browser values are not trusted.
  */
@@ -101,6 +101,7 @@ function save_package(array $d, int $userId): array
         : $rawCount !== '' && $finCount !== '' && $rawCount !== $finCount);
     if ($mismatch)
         throw new InvalidArgumentException('النمرة دي مش من الخام المختار — راجع البوي اللي على المكنة');
+    if (!$raw) throw new InvalidArgumentException('اختار البوي (الخام اللي على المكنة) — الصافي بيتخصم منه');
 
     $cones = max(0, (int)$d['cones_count']);
     $gross = round((float)$d['gross'], 3);
@@ -129,6 +130,7 @@ function save_package(array $d, int $userId): array
             q($mv, [$fin['id'], $net, $cones, $pkgId, $now]);
             if ($cone && $cones > 0) q($mv, [$cone['id'], -$cones, -$cones, $pkgId, $now]);
             if ($pack) q($mv, [$pack['id'], -1, -1, $pkgId, $now]);
+            q($mv, [$raw['id'], -$net, 0, $pkgId, $now]);   // the yarn's net weight comes out of the raw POY
             $pdo->commit();
             return ['id' => $pkgId, 'serial' => $serial, 'tare' => $tare, 'net' => $net];
         } catch (Throwable $ex) {
