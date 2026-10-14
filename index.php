@@ -25,6 +25,14 @@ $byItem = q("SELECT i.code, i.name, COUNT(*) n, SUM(p.net) net FROM packages p J
 $stockFinished = q("SELECT i.code, i.name, COALESCE(SUM(m.qty),0) kg FROM items i LEFT JOIN stock_moves m ON m.item_id=i.id WHERE i.type='finished' AND i.active=1 GROUP BY i.id HAVING kg > 0.0005 ORDER BY kg DESC LIMIT 8")->fetchAll();
 $low = q("SELECT i.code, i.name, COALESCE(SUM(m.qty),0) qty FROM items i LEFT JOIN stock_moves m ON m.item_id=i.id
           WHERE i.active=1 AND i.type IN ('cone','pack') GROUP BY i.id HAVING qty < 200 ORDER BY qty")->fetchAll();
+// per raw POY: received, taken by production, sold / issued, remaining
+$rawRows = q("SELECT i.code, i.name, i.spec, i.active,
+                COALESCE(SUM(CASE WHEN m.source='doc' AND m.qty>0 THEN m.qty END),0) inq,
+                COALESCE(-SUM(CASE WHEN m.source='package' THEN m.qty END),0) prod,
+                COALESCE(-SUM(CASE WHEN m.source='sale' OR (m.source='doc' AND m.qty<0) THEN m.qty END),0) outq,
+                COALESCE(SUM(m.qty),0) bal
+              FROM items i LEFT JOIN stock_moves m ON m.item_id=i.id WHERE i.type='raw'
+              GROUP BY i.id HAVING i.active=1 OR inq<>0 OR bal<>0 ORDER BY i.code")->fetchAll();
 $recentSales = q("SELECT s.id, s.type, s.number, s.inv_date, s.total, p.name FROM sales_invoices s JOIN parties p ON p.id=s.customer_id WHERE s.voided=0 ORDER BY s.id DESC LIMIT 6")->fetchAll();
 
 $pageTitle = 'لوحة التحكم';
@@ -54,6 +62,18 @@ require __DIR__ . '/inc/header.php';
     <a href="doc_new.php?type=issue" class="btn btn-outline-warning btn-sm"><i class="bi bi-gear-wide-connected"></i> صرف للتشغيل</a>
     <a href="stock.php" class="btn btn-outline-secondary btn-sm"><i class="bi bi-boxes"></i> المخزن</a>
   </div></div>
+</div>
+<div class="card table-wrap mb-3 reveal"><div class="p-3 pb-0 card-title-row"><h6><i class="bi bi-layers"></i> الخام — لكل بوي (كيلو)</h6></div>
+  <table class="table table-sm align-middle mb-0"><thead><tr><th>البوي</th><th>بيطلع نمرة</th><th>الوارد</th><th>اتسحب للإنتاج</th><th>اتباع / اتصرف</th><th>المتبقي</th><th style="width:16%"></th></tr></thead>
+  <?php $sum = ['inq' => 0, 'prod' => 0, 'outq' => 0, 'bal' => 0];
+  foreach ($rawRows as $r): foreach ($sum as $k => $_) $sum[$k] += (float)$r[$k]; $pct = (float)$r['inq'] > 0 ? max(0, min(100, 100 * (float)$r['bal'] / (float)$r['inq'])) : 0; ?>
+    <tr><td><b><?= e($r['code']) ?></b> <span class="small text-muted"><?= e($r['name']) ?></span></td><td><?= e($r['spec']) ?></td>
+      <td class="num"><?= fmt_qty($r['inq'], 1) ?></td><td class="num"><?= fmt_qty($r['prod'], 1) ?></td><td class="num"><?= fmt_qty($r['outq'], 1) ?></td>
+      <td class="num fw-bold <?= $r['bal'] < 0 ? 'neg' : '' ?>"><?= fmt_qty($r['bal'], 1) ?></td>
+      <td><div class="progress" style="height:8px" title="فاضل <?= round($pct) ?>% من الوارد"><div class="progress-bar <?= $pct < 15 ? 'bg-danger' : ($pct < 35 ? 'bg-warning' : 'bg-success') ?>" style="width:<?= $pct ?>%"></div></div></td></tr>
+  <?php endforeach; if (!$rawRows): ?><tr><td colspan="7" class="text-muted text-center py-3">مفيش خام متسجل</td></tr><?php else: ?>
+    <tfoot><tr class="fw-bold"><td colspan="2">الإجمالي</td><td class="num"><?= fmt_qty($sum['inq'], 1) ?></td><td class="num"><?= fmt_qty($sum['prod'], 1) ?></td><td class="num"><?= fmt_qty($sum['outq'], 1) ?></td><td class="num"><?= fmt_qty($sum['bal'], 1) ?></td><td></td></tr></tfoot>
+  <?php endif; ?></table>
 </div>
 <div class="row g-3">
   <div class="col-xl-8 reveal">
