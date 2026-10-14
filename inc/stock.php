@@ -92,6 +92,7 @@ function save_package(array $d, int $userId): array
     // raw POY: the one picked on the scale, else the raw the finished item is made from
     $rawId = !empty($d['raw_item_id']) ? (int)$d['raw_item_id'] : (int)($fin['raw_item_id'] ?? 0);
     $raw = $rawId ? q("SELECT * FROM items WHERE id=? AND type='raw'", [$rawId])->fetch() : null;
+    if ($raw && !$raw['active']) throw new InvalidArgumentException('البوي ده خلصان (موقوف في الأصناف) — مينفعش يتنتج منه');
     // the count must come from this raw: its own raw link, else the count the raw makes (raw spec)
     $rawCount = $raw ? spec_key($raw['spec']) : '';
     $finCount = spec_key($fin['spec']);

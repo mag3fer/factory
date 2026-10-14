@@ -2,8 +2,10 @@
 require __DIR__ . '/inc/bootstrap.php';
 $u = require_role('scale');
 
-$finished = items_by_type('finished');
 $raws = items_by_type('raw');
+// a raw that's used up is deactivated: hide it and the counts made only from it
+$activeRaw = array_column($raws, 'id', 'id');
+$finished = array_values(array_filter(items_by_type('finished'), fn($i) => !$i['raw_item_id'] || isset($activeRaw[$i['raw_item_id']])));
 $cones = items_by_type('cone');
 $allPackingTypes = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active FROM packing_types ORDER BY id')->fetchAll();
 $packingTypes = array_values(array_filter($allPackingTypes, fn($t) => $t['active']));
