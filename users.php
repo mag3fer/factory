@@ -35,7 +35,8 @@ $pageTitle = 'المستخدمين';
 require __DIR__ . '/inc/header.php';
 ?>
 <h4>المستخدمين</h4>
-<div class="card p-3 mb-3">
+<div class="card p-3 mb-3<?= $edit ? ' border-primary' : '' ?>">
+  <h6 class="mb-2"><?= $edit ? 'تعديل المستخدم: ' . e($edit['username']) . ' <a href="users.php" class="btn btn-sm btn-outline-secondary ms-2">إلغاء</a>' : 'مستخدم جديد' ?></h6>
   <form method="post" class="row g-2" autocomplete="off">
     <?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)($edit['id'] ?? 0) ?>">
     <div class="col-md-2"><input name="username" class="form-control" placeholder="اسم الدخول" required value="<?= e($edit['username'] ?? '') ?>"></div>
