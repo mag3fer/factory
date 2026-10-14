@@ -21,6 +21,7 @@ $nav = [
     ['parties.php', 'العملاء والموردين', 'person-vcard', ['admin', 'store']],
     ['users.php', 'المستخدمين', 'shield-lock', ['admin']],
     ['settings.php', 'الإعدادات', 'gear', ['admin']],
+    ['backup.php', 'نسخة احتياطية وتصفير', 'database', ['admin']],
 ];
 $current = basename($_SERVER['SCRIPT_NAME']);
 $logo = setting('logo_file');
