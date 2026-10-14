@@ -89,7 +89,11 @@ function save_package(array $d, int $userId): array
     if (!$pt) throw new InvalidArgumentException('اختر نوع التعبئة');
     $cone = !empty($d['cone_item_id']) ? q("SELECT * FROM items WHERE id=? AND type='cone'", [(int)$d['cone_item_id']])->fetch() : null;
     $pack = $pt['pack_item_id'] ? q('SELECT * FROM items WHERE id=?', [(int)$pt['pack_item_id']])->fetch() : null;
-    $raw = !empty($d['raw_item_id']) ? q("SELECT * FROM items WHERE id=? AND type='raw'", [(int)$d['raw_item_id']])->fetch() : null;
+    // raw POY: the one picked on the scale, else the raw the finished item is made from
+    $rawId = !empty($d['raw_item_id']) ? (int)$d['raw_item_id'] : (int)($fin['raw_item_id'] ?? 0);
+    $raw = $rawId ? q("SELECT * FROM items WHERE id=? AND type='raw'", [$rawId])->fetch() : null;
+    if ($raw && $fin['raw_item_id'] && (int)$fin['raw_item_id'] !== (int)$raw['id'])
+        throw new InvalidArgumentException('النمرة دي مش من الخام المختار — راجع البوي اللي على المكنة');
 
     $cones = max(0, (int)$d['cones_count']);
     $gross = round((float)$d['gross'], 3);

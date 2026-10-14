@@ -20,6 +20,20 @@
     try { const v = localStorage.getItem('scale.' + id); if (v !== null) $(id).value = v; } catch (e) {}
     $(id).addEventListener('change', () => { try { localStorage.setItem('scale.' + id, $(id).value); } catch (e) {} recalc(); });
   });
+  // raw ⇄ finished: picking the raw on the machine shows only the yarn counts made from it;
+  // picking a yarn count selects its raw.
+  function filterFinished() {
+    const raw = $('raw').value;
+    [...$('finished').options].forEach(o => { if (o.value) o.hidden = !!raw && o.dataset.raw !== '0' && o.dataset.raw !== raw; });
+    const sel = $('finished').selectedOptions[0];
+    if (sel && sel.hidden) { $('finished').value = ''; try { localStorage.setItem('scale.finished', ''); } catch (e) {} }
+  }
+  $('raw').addEventListener('change', () => { filterFinished(); recalc(); });
+  $('finished').addEventListener('change', () => {
+    const r = $('finished').selectedOptions[0]?.dataset.raw;
+    if (r && r !== '0' && $('raw').value !== r) { $('raw').value = r; try { localStorage.setItem('scale.raw', r); } catch (e) {} filterFinished(); }
+  });
+  filterFinished();
   $('conesCount').addEventListener('input', recalc);
   $('manualGross').addEventListener('input', recalc);
 
