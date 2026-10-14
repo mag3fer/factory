@@ -56,6 +56,6 @@ foreach ($opening as $code => $qty) {
 }
 
 require __DIR__ . '/migrate.php';
-run_migrations($pdo);
+foreach (run_migrations($pdo) as $name) echo "applied $name\n";
 
 echo "done. admin password written to install/ADMIN_PASSWORD.txt\n";

@@ -1,0 +1,63 @@
+# Uploads the system to InfinityFree over FTP on every push.
+# Needs these repository secrets (Settings → Secrets and variables → Actions):
+#   FTP_SERVER, FTP_USERNAME, FTP_PASSWORD   — from the InfinityFree account page (FTP details)
+#   DB_HOST, DB_NAME, DB_USER, DB_PASS       — from InfinityFree → MySQL Databases
+# config.php is written from the DB_* secrets here; it is never committed.
+name: Deploy to InfinityFree
+
+on:
+  push:
+    branches: [main, claude/raw-count-match]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+    steps:
+      - name: Secrets missing
+        if: env.FTP_PASSWORD == ''
+        run: echo "::warning::Add the FTP_* and DB_* secrets in Settings → Secrets and variables → Actions, then re-run this workflow."
+
+      - uses: actions/checkout@v4
+        if: env.FTP_PASSWORD != ''
+
+      - name: Write config.php from secrets
+        if: env.FTP_PASSWORD != ''
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
+        run: |
+          php -r 'file_put_contents("config.php", "<?php\nreturn " . var_export([
+            "db_host" => getenv("DB_HOST"), "db_name" => getenv("DB_NAME"),
+            "db_user" => getenv("DB_USER"), "db_pass" => getenv("DB_PASS"),
+            "timezone" => "Africa/Cairo",
+          ], true) . ";\n");'
+          php -l config.php
+
+      - name: Upload over FTP
+        if: env.FTP_PASSWORD != ''
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: /htdocs/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            backups/**
+            assets/uploads/**
+            config.sample.php
+            install/install.php
+            install/*.sql
+            install/*.ps1
+            install/ADMIN_PASSWORD.txt

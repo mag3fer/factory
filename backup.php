@@ -1,6 +1,7 @@
 <?php
 // Backup + reset of test data: a full SQL backup is always taken before anything is deleted.
 require __DIR__ . '/inc/bootstrap.php';
+require __DIR__ . '/inc/migrations.php';
 $u = require_role('admin');
 
 const BACKUP_DIR = __DIR__ . '/backups';
@@ -56,6 +57,17 @@ if (isset($_GET['download'])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
+    if (($_POST['action'] ?? '') === 'migrate') {
+        $file = make_backup('before_update');
+        try {
+            $done = run_migrations(db());
+        } catch (Throwable $ex) {
+            flash('التحديث وقف عند خطأ: ' . $ex->getMessage() . " — النسخة الاحتياطية: $file", 'danger');
+            redirect('backup.php');
+        }
+        flash('تم تحديث قاعدة البيانات: ' . (implode('، ', $done) ?: 'مفيش جديد'));
+        redirect('backup.php');
+    }
     if (($_POST['action'] ?? '') === 'backup') {
         flash('تم عمل نسخة احتياطية: ' . make_backup('manual'));
         redirect('backup.php');
@@ -114,6 +126,7 @@ $counts = [
     'sales' => q('SELECT COUNT(*) n, COALESCE(SUM(total),0) kg FROM sales_invoices')->fetch(),
     'raw' => q("SELECT COUNT(DISTINCT m.source, m.source_id) n, COALESCE(SUM(m.qty),0) kg FROM stock_moves m JOIN items i ON i.id=m.item_id WHERE i.type='raw'")->fetch(),
 ];
+$pending = array_map('basename', pending_migrations(db()));
 $files = is_dir(BACKUP_DIR) ? glob(BACKUP_DIR . '/factory_*.sql') : [];
 rsort($files);
 
@@ -121,6 +134,12 @@ $pageTitle = 'نسخة احتياطية وتصفير';
 require __DIR__ . '/inc/header.php';
 ?>
 <h4 class="mb-3">نسخة احتياطية وتصفير</h4>
+<?php if ($pending): ?>
+<div class="alert alert-warning d-flex justify-content-between align-items-center">
+  <span>فيه <?= count($pending) ?> تحديث لقاعدة البيانات مستني يتطبّق (<?= e(implode('، ', $pending)) ?>)</span>
+  <form method="post" class="m-0"><?= csrf_field() ?><input type="hidden" name="action" value="migrate"><button class="btn btn-sm btn-warning">نسخة احتياطية + تحديث</button></form>
+</div>
+<?php endif; ?>
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card p-3 h-100">
