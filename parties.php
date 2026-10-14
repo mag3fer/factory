@@ -2,12 +2,20 @@
 require __DIR__ . '/inc/bootstrap.php';
 require_role('store');
 
+/** Next free code for a customer / supplier: the last numeric code of that type + 1 (same width). */
+function next_party_code(string $type): string
+{
+    $last = q("SELECT code FROM parties WHERE type=? AND code REGEXP '^[0-9]+$' ORDER BY CAST(code AS UNSIGNED) DESC LIMIT 1", [$type])->fetchColumn();
+    return $last ? str_pad((string)((int)$last + 1), strlen($last), '0', STR_PAD_LEFT) : ($type === 'supplier' ? '22030001' : '12030001');
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $id = (int)($_POST['id'] ?? 0);
     $name = trim($_POST['name'] ?? '');
     $type = $_POST['type'] ?? '';
     $code = trim($_POST['code'] ?? '') ?: null;
+    if (!$id && $code === null && in_array($type, ['supplier', 'customer'], true)) $code = next_party_code($type);
     $phone = trim($_POST['phone'] ?? '') ?: null;
     $notes = trim($_POST['notes'] ?? '') ?: null;
     $active = isset($_POST['active']) ? 1 : 0;
@@ -41,9 +49,10 @@ require __DIR__ . '/inc/header.php';
 <div class="card p-3 mb-3">
   <form method="post" class="row g-2">
     <?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)($edit['id'] ?? 0) ?>">
-    <div class="col-md-2"><input name="code" class="form-control" placeholder="الكود" value="<?= e($edit['code'] ?? '') ?>"></div>
+    <div class="col-md-2"><input name="code" id="partyCode" class="form-control" placeholder="الكود" value="<?= e($edit ? ($edit['code'] ?? '') : next_party_code($type)) ?>"
+      data-next-customer="<?= e(next_party_code('customer')) ?>" data-next-supplier="<?= e(next_party_code('supplier')) ?>"></div>
     <div class="col-md-3"><input name="name" class="form-control" placeholder="الاسم" required value="<?= e($edit['name'] ?? '') ?>"></div>
-    <div class="col-md-2"><select name="type" class="form-select"><option value="customer"<?= ($edit['type'] ?? $type) === 'customer' ? ' selected' : '' ?>>عميل</option><option value="supplier"<?= ($edit['type'] ?? $type) === 'supplier' ? ' selected' : '' ?>>مورد</option></select></div>
+    <div class="col-md-2"><select name="type" id="partyType" class="form-select"><option value="customer"<?= ($edit['type'] ?? $type) === 'customer' ? ' selected' : '' ?>>عميل</option><option value="supplier"<?= ($edit['type'] ?? $type) === 'supplier' ? ' selected' : '' ?>>مورد</option></select></div>
     <div class="col-md-2"><input name="phone" class="form-control" placeholder="الموبايل" value="<?= e($edit['phone'] ?? '') ?>"></div>
     <div class="col-md-2"><input name="notes" class="form-control" placeholder="ملاحظات" value="<?= e($edit['notes'] ?? '') ?>"></div>
     <div class="col-md-1 d-flex align-items-center gap-2"><input type="checkbox" name="active" class="form-check-input"<?= ($edit['active'] ?? 1) ? ' checked' : '' ?>> نشط</div>
@@ -63,4 +72,16 @@ require __DIR__ . '/inc/header.php';
   <?php endforeach; ?>
 </table>
 </div>
+<?php if (!$edit): ?>
+<script>
+// new customer/supplier: switching the type swaps in that type's next code (unless one was typed by hand)
+(() => {
+  const code = document.getElementById('partyCode'), type = document.getElementById('partyType');
+  type.addEventListener('change', () => {
+    const other = type.value === 'customer' ? code.dataset.nextSupplier : code.dataset.nextCustomer;
+    if (code.value === '' || code.value === other) code.value = type.value === 'customer' ? code.dataset.nextCustomer : code.dataset.nextSupplier;
+  });
+})();
+</script>
+<?php endif; ?>
 <?php require __DIR__ . '/inc/footer.php';
