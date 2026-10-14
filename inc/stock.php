@@ -92,7 +92,13 @@ function save_package(array $d, int $userId): array
     // raw POY: the one picked on the scale, else the raw the finished item is made from
     $rawId = !empty($d['raw_item_id']) ? (int)$d['raw_item_id'] : (int)($fin['raw_item_id'] ?? 0);
     $raw = $rawId ? q("SELECT * FROM items WHERE id=? AND type='raw'", [$rawId])->fetch() : null;
-    if ($raw && $fin['raw_item_id'] && (int)$fin['raw_item_id'] !== (int)$raw['id'])
+    // the count must be the one this raw makes (raw spec = its count), else the raw it's linked to
+    $rawCount = $raw ? spec_key($raw['spec']) : '';
+    $finCount = spec_key($fin['spec']);
+    $mismatch = $raw && ($rawCount !== '' && $finCount !== ''
+        ? $rawCount !== $finCount
+        : $fin['raw_item_id'] && (int)$fin['raw_item_id'] !== (int)$raw['id']);
+    if ($mismatch)
         throw new InvalidArgumentException('النمرة دي مش من الخام المختار — راجع البوي اللي على المكنة');
 
     $cones = max(0, (int)$d['cones_count']);

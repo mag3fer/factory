@@ -56,8 +56,8 @@ require __DIR__ . '/inc/header.php';
   <div class="col-xl-7">
     <div class="card p-3 mb-3">
       <div class="row g-2">
-        <div class="col-md-8"><label class="form-label">النمرة (الخيط التام)</label><select id="finished" class="form-select form-select-lg"><option value="">— اختر —</option><?php foreach ($finished as $i): ?><option value="<?= $i['id'] ?>" data-raw="<?= (int)$i['raw_item_id'] ?>"><?= e($i['code'] . ' — ' . $i['name']) ?></option><?php endforeach; ?></select></div>
-        <div class="col-md-4"><label class="form-label">البوي (الخام اللي على المكنة)</label><select id="raw" class="form-select"><option value="">كل الخامات</option><?= opt($raws) ?></select></div>
+        <div class="col-md-8"><label class="form-label">النمرة (الخيط التام)</label><select id="finished" class="form-select form-select-lg"><option value="">— اختر —</option><?php foreach ($finished as $i): ?><option value="<?= $i['id'] ?>" data-raw="<?= (int)$i['raw_item_id'] ?>" data-spec="<?= e(spec_key($i['spec'])) ?>"><?= e($i['code'] . ' — ' . $i['name']) ?></option><?php endforeach; ?></select></div>
+        <div class="col-md-4"><label class="form-label">البوي (الخام اللي على المكنة)</label><select id="raw" class="form-select"><option value="">كل الخامات</option><?php foreach ($raws as $i): ?><option value="<?= $i['id'] ?>" data-spec="<?= e(spec_key($i['spec'])) ?>"><?= e($i['code'] . ' — ' . $i['name'] . ($i['spec'] ? ' ← ' . $i['spec'] : '')) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-5"><label class="form-label d-flex justify-content-between">نوع التعبئة
             <a href="#" id="btnEditPacking" class="small">تعديل الأوزان</a></label><select id="packing" class="form-select"><option value="">— اختر —</option>
           <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>

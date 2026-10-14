@@ -138,3 +138,9 @@ function items_by_type(string ...$types): array
     $in = implode(',', array_fill(0, count($types), '?'));
     return q("SELECT * FROM items WHERE active=1 AND type IN ($in) ORDER BY code", $types)->fetchAll();
 }
+
+/** Yarn count as a comparable key: "150D / 144F" → "150/144". A raw POY's spec is the count it makes. */
+function spec_key(?string $spec): string
+{
+    return preg_replace('~[^0-9/]~', '', (string)$spec);
+}

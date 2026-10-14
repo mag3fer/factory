@@ -63,7 +63,8 @@ require __DIR__ . '/inc/header.php';
       <?php foreach (UNITS as $k => $l): ?><option value="<?= $k ?>"<?= $edit['unit'] === $k ? ' selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></div>
     <div class="col-md-2"><label class="form-label">وزن القطعة (كيلو)</label><input name="tare_weight" type="number" step="0.001" class="form-control num" value="<?= e((string)$edit['tare_weight']) ?>">
       <div class="form-text">للكونات والكراتين (الفوارغ)</div></div>
-    <div class="col-md-2"><label class="form-label">النمرة / المواصفة</label><input name="spec" class="form-control" value="<?= e($edit['spec']) ?>" placeholder="150/144"></div>
+    <div class="col-md-2"><label class="form-label">النمرة / المواصفة</label><input name="spec" class="form-control" value="<?= e($edit['spec']) ?>" placeholder="150/144">
+      <div class="form-text">للبوي: النمرة اللي بتطلع منه</div></div>
     <div class="col-md-2"><label class="form-label">مواصفة POY</label><input name="poy_spec" class="form-control" value="<?= e($edit['poy_spec']) ?>" placeholder="250D/144F"></div>
     <div class="col-md-2"><label class="form-label">رقم اللوط</label><input name="lot_no" class="form-control" value="<?= e($edit['lot_no']) ?>"></div>
     <div class="col-md-1"><label class="form-label">الدرجة</label><input name="grade" class="form-control" value="<?= e($edit['grade']) ?>"></div>
