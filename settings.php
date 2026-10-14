@@ -11,6 +11,8 @@ $keys = [
     'label_width_mm' => ['عرض الستيكر (مم)', 'number'],
     'label_height_mm' => ['طول الستيكر (مم)', 'number'],
     'scale_baud' => ['سرعة بورت الميزان (Baud)', 'number'],
+    'container_kg' => ['وزن حاوية الخام (كيلو) — لحساب الاستلام بالبالتة', 'number'],
+    'container_pallets' => ['عدد البالتات في الحاوية', 'number'],
 ];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();

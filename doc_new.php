@@ -61,7 +61,7 @@ require __DIR__ . '/inc/header.php';
     <tbody></tbody>
   </table>
   <div class="mb-3"><button type="button" class="btn btn-outline-secondary btn-sm" id="addLine">+ سطر</button>
-    <?php if ($type === 'receipt'): ?><span class="text-muted small ms-2">الكمية بتتحسب لوحدها من عدد البالتات × 558 كيلو (تقدر تعدّلها)</span><?php endif; ?></div>
+    <?php if ($type === 'receipt'): $cKg = (float)(setting('container_kg') ?: 25110); $cPal = max(1, (int)(setting('container_pallets') ?: 44)); ?><span class="text-muted small ms-2" id="palletHint" data-kg="<?= $cKg / $cPal ?>">الكمية بتتحسب لوحدها: الحاوية <?= $cPal ?> بالتة = <?= fmt_qty($cKg, 0) ?> كيلو (البالتة <?= fmt_qty($cKg / $cPal, 1) ?> كيلو) — تقدر تعدّلها، والرقم ده بيتغيّر من الإعدادات</span><?php endif; ?></div>
   <div><button class="btn btn-success">حفظ وترحيل</button> <a href="docs.php" class="btn btn-secondary">رجوع</a></div>
 </form>
 <template id="lineTpl">
@@ -84,7 +84,8 @@ tbody.addEventListener('click', e => { if (e.target.classList.contains('del')) e
 tbody.addEventListener('input', e => {
   if (!e.target.classList.contains('pallets')) return;
   const tr = e.target.closest('tr'), n = parseInt(e.target.value || '0', 10);
-  tr.querySelector('.qty').value = n ? (n * 558).toFixed(3) : '';
+  const perPallet = parseFloat(document.getElementById('palletHint').dataset.kg);
+  tr.querySelector('.qty').value = n ? (n * perPallet).toFixed(3) : '';
   tr.querySelector('.pieces').value = n ? n * 36 : '';
 });
 addLine(); addLine(); addLine();
