@@ -92,12 +92,12 @@ function save_package(array $d, int $userId): array
     // raw POY: the one picked on the scale, else the raw the finished item is made from
     $rawId = !empty($d['raw_item_id']) ? (int)$d['raw_item_id'] : (int)($fin['raw_item_id'] ?? 0);
     $raw = $rawId ? q("SELECT * FROM items WHERE id=? AND type='raw'", [$rawId])->fetch() : null;
-    // the count must be the one this raw makes (raw spec = its count), else the raw it's linked to
+    // the count must come from this raw: its own raw link, else the count the raw makes (raw spec)
     $rawCount = $raw ? spec_key($raw['spec']) : '';
     $finCount = spec_key($fin['spec']);
-    $mismatch = $raw && ($rawCount !== '' && $finCount !== ''
-        ? $rawCount !== $finCount
-        : $fin['raw_item_id'] && (int)$fin['raw_item_id'] !== (int)$raw['id']);
+    $mismatch = $raw && ($fin['raw_item_id']
+        ? (int)$fin['raw_item_id'] !== (int)$raw['id']
+        : $rawCount !== '' && $finCount !== '' && $rawCount !== $finCount);
     if ($mismatch)
         throw new InvalidArgumentException('النمرة دي مش من الخام المختار — راجع البوي اللي على المكنة');
 

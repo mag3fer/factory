@@ -20,12 +20,12 @@
     try { const v = localStorage.getItem('scale.' + id); if (v !== null) $(id).value = v; } catch (e) {}
     $(id).addEventListener('change', () => { try { localStorage.setItem('scale.' + id, $(id).value); } catch (e) {} recalc(); });
   });
-  // raw ⇄ finished: picking the raw on the machine shows only the yarn counts it makes (raw spec =
-  // its count, e.g. POY 250D/144F → 150/144; falls back to the item's raw link when a spec is missing);
-  // picking a yarn count selects a raw that makes it.
-  const fits = (fin, raw) => raw.dataset.spec && fin.dataset.spec
-    ? fin.dataset.spec === raw.dataset.spec
-    : fin.dataset.raw === '0' || fin.dataset.raw === raw.value;
+  // raw ⇄ finished: picking the raw on the machine shows only the yarn counts made from it — the
+  // count's own raw link when it has one, else the same count as the raw's spec (POY 250D → 150/144);
+  // picking a yarn count selects its raw.
+  const fits = (fin, raw) => fin.dataset.raw !== '0'
+    ? fin.dataset.raw === raw.value
+    : !raw.dataset.spec || !fin.dataset.spec || fin.dataset.spec === raw.dataset.spec;
   function filterFinished() {
     const raw = $('raw').selectedOptions[0];
     [...$('finished').options].forEach(o => { if (o.value) o.hidden = !!raw?.value && !fits(o, raw); });
