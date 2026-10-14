@@ -24,6 +24,7 @@
 html, body { height: 100%; }
 body { background: var(--tl-bg); color: var(--tl-ink); font-family: "Cairo", Tahoma, "Segoe UI", sans-serif; font-size: 15px; }
 .num { direction: ltr; unicode-bidi: embed; font-variant-numeric: tabular-nums; }
+.table td.num, .table th.num { text-align: right; } /* ltr numbers line up under the (rtl, right-aligned) headers */
 .neg { color: var(--tl-red); }
 a { color: var(--tl-blue); }
 
