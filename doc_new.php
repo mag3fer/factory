@@ -86,7 +86,6 @@ tbody.addEventListener('input', e => {
   const tr = e.target.closest('tr'), n = parseInt(e.target.value || '0', 10);
   const perPallet = parseFloat(document.getElementById('palletHint').dataset.kg);
   tr.querySelector('.qty').value = n ? (n * perPallet).toFixed(3) : '';
-  tr.querySelector('.pieces').value = n ? n * 36 : '';
 });
 addLine(); addLine(); addLine();
 </script>
