@@ -32,6 +32,7 @@ require __DIR__ . '/inc/header.php';
 ?>
 <div class="row g-3" id="station"
      data-csrf="<?= csrf_token() ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>"
+     data-target-per-cone="<?= e(setting('target_gross_per_cone', '6')) ?>" data-target-ok="<?= e(setting('target_ok_pct', '3')) ?>" data-target-warn="<?= e(setting('target_warn_pct', '6')) ?>"
      data-usual="<?= e(json_encode((object)$usual)) ?>">
   <div class="col-xl-5">
     <div class="card p-3">
@@ -42,12 +43,18 @@ require __DIR__ . '/inc/header.php';
           <button id="btnConnect" class="btn btn-sm btn-outline-primary">توصيل الميزان</button>
         </div>
       </div>
-      <div id="display" class="scale-display offline">0.00</div>
+      <div class="scale-device">
+        <div class="sd-top"><span class="sd-brand">ANHENG <b>ETA-AC</b></span>
+          <span class="sd-leds"><i id="ledStable" class="led">STABLE</i><i id="ledZero" class="led">ZERO</i><i id="ledSaved" class="led led-red">SAVED</i></span></div>
+        <div class="sd-lcd"><div class="sd-ghost" aria-hidden="true">888.88</div><div id="display" class="scale-display offline">0.00</div><span class="sd-unit">kg</span></div>
+        <div class="sd-plate-wrap"><div class="sd-plate" id="plate"></div><div class="sd-base"></div></div>
+      </div>
       <div class="input-group mt-2">
         <span class="input-group-text">وزن يدوي</span>
         <input id="manualGross" type="number" step="0.01" min="0" class="form-control num" placeholder="لو الميزان مش متصل اكتب الوزن هنا">
         <span class="input-group-text">kg</span>
       </div>
+      <div id="target" class="target-bar mt-2 d-none"><div class="tb-text"><span id="tbLabel"></span><b id="tbDiff" dir="ltr"></b></div><div class="tb-track"><i class="tb-mid"></i><i class="tb-dot" id="tbDot"></i></div></div>
       <div class="d-flex justify-content-between small text-muted mt-1"><span id="lastAt"></span><span id="rawFrame" dir="ltr"></span></div>
       <button id="btnSameWeight" class="btn btn-sm btn-outline-warning mt-1 d-none">الكرتونة الجديدة نفس الوزن بالظبط — استخدم الوزن ده</button>
       <hr>

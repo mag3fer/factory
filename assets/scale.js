@@ -13,6 +13,7 @@
   let fresh = false;         // liveGross not yet saved
   let usedValue = null;      // weight of the last saved carton
   let port = null, reader = null, keepReading = false;
+  let awaitingNew = false;   // a carton was just saved: the save button stays red until a new weight is registered
 
   // ---------- remember selections between cartons ----------
   const KEEP = ['finished', 'raw', 'packing', 'cone', 'conesCount'];
@@ -42,7 +43,7 @@
   });
   filterFinished();
   $('conesCount').addEventListener('input', recalc);
-  $('manualGross').addEventListener('input', recalc);
+  $('manualGross').addEventListener('input', () => { if (parseFloat($('manualGross').value) > 0) awaitingNew = false; recalc(); });
 
   // tare = cones × cone weight (from the chosen cone) + carton/sack + cones × bag
   let coneMissing = false;
@@ -85,19 +86,40 @@
     return '';
   }
 
+  // Ideal gross weight = cones × target per cone (6 cones → 36 kg). The bar shows how far the
+  // carton is from it: green within ok%, amber within warn%, red beyond.
+  const T_PER_CONE = parseFloat(station.dataset.targetPerCone) || 6;
+  const T_OK = parseFloat(station.dataset.targetOk) || 3, T_WARN = parseFloat(station.dataset.targetWarn) || 6;
+  function showTarget(g) {
+    const box = $('target'), n = parseInt($('conesCount').value || '0', 10);
+    if (!g || n <= 0) { box.classList.add('d-none'); return; }
+    const target = n * T_PER_CONE, diff = g.value - target, pct = Math.abs(diff) / target * 100;
+    const lvl = pct <= T_OK ? 'ok' : pct <= T_WARN ? 'warn' : 'bad';
+    box.className = 'target-bar mt-2 ' + lvl;
+    $('tbLabel').textContent = `المثالي ${target.toFixed(2)} كيلو (${n} كونات) — ` + (lvl === 'ok' ? 'مظبوط' : diff < 0 ? 'ناقص' : 'زايد');
+    $('tbDiff').textContent = (diff >= 0 ? '+' : '') + diff.toFixed(2) + ' kg (' + (diff >= 0 ? '+' : '-') + pct.toFixed(1) + '%)';
+    // dot position: centre = ideal, edges = ±(2 × warn%)
+    const pos = Math.max(0, Math.min(100, 50 + (diff / target * 100) / (T_WARN * 2) * 50));
+    $('tbDot').style.left = pos + '%';
+  }
+
   function recalc() {
     const tare = tareOf();
     $('tare').textContent = tare.toFixed(3);
     const g = currentGross();
     const net = g ? Math.round((g.value - tare) * 1000) / 1000 : 0;
     $('net').textContent = net.toFixed(3);
+    showTarget(g);
     currentWarn = sanity(g, net);
     $('warn').innerHTML = currentWarn ? `<div class="alert alert-warning py-2 mb-0">⚠ ${currentWarn}</div>` : '';
     $('btnSave').disabled = !(g && net > 0 && $('finished').value && $('packing').value && !coneMissing);
     $('btnSave').textContent = !$('finished').value ? 'اختر النمرة الأول'
       : !$('packing').value ? 'اختر كرتون أو شكارة'
       : coneMissing ? 'اختر لون الكونة'
-      : (!g && usedValue !== null ? 'تم الحفظ — حط الكرتونة الجاية…' : 'حفظ وطباعة الستيكر');
+      : (awaitingNew ? 'تم الحفظ — استنى وزن جديد…' : 'حفظ وطباعة الستيكر');
+    $('btnSave').classList.toggle('waiting', awaitingNew && !g);
+    $('btnSave').classList.toggle('ready', !$('btnSave').disabled);
+    $('ledSaved').classList.toggle('on', awaitingNew && !g);
     $('display').classList.toggle('unstable', liveGross !== null && !fresh);
     // two cartons in a row can weigh exactly the same; the indicator won't resend, so let the operator confirm
     $('btnSameWeight').classList.toggle('d-none', !(usedValue !== null && liveGross === usedValue && !fresh));
@@ -142,6 +164,20 @@
     } catch (e) {}
   }
 
+  // the display counts up/down to the new weight like a real indicator settling
+  let shown = 0, rollRaf = 0;
+  function rollTo(target) {
+    cancelAnimationFrame(rollRaf);
+    const from = shown, t0 = performance.now(), dur = 450;
+    const step = now => {
+      const k = Math.min(1, (now - t0) / dur), ease = 1 - Math.pow(1 - k, 3);
+      shown = k >= 1 ? target : from + (target - from) * ease;
+      $('display').textContent = shown.toFixed(2);
+      if (k < 1) rollRaf = requestAnimationFrame(step);
+    };
+    rollRaf = requestAnimationFrame(step);
+  }
+
   function onReading(r) {
     if (r.unstableFlag) return;
     const wasFresh = fresh;
@@ -154,10 +190,13 @@
       liveGross = r.value; fresh = true; usedValue = null;
     }
     const d = $('display');
-    d.textContent = r.value.toFixed(2);
+    rollTo(r.value);
     d.classList.remove('offline');
+    $('ledStable').classList.toggle('on', r.value >= 0.1);
+    $('ledZero').classList.toggle('on', r.value < 0.1);
+    $('plate').classList.toggle('loaded', r.value >= 0.1);
     $('lastAt').textContent = 'آخر وزن وصل الساعة ' + new Date().toLocaleTimeString('ar-EG');
-    if (fresh && !wasFresh) beep();
+    if (fresh && !wasFresh) { awaitingNew = false; d.classList.remove('bump'); void d.offsetWidth; d.classList.add('bump'); beep(); }
     recalc();
   }
 
@@ -302,6 +341,7 @@
       printLabel(r.id);
       addRecent(r, g.value);
       refreshStats();
+      awaitingNew = true;
       $('manualGross').value = '';
       if (g.source === 'scale') { usedValue = g.value; fresh = false; }
     } catch (e) {
