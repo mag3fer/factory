@@ -103,7 +103,30 @@
     $('tbDot').style.left = pos + '%';
   }
 
+  // The standard carton has STD_CONES cones. Any other count (e.g. a stray ↑/↓ press) is flagged with a
+  // banner, and the first save at that count has to be confirmed.
+  const STD_CONES = parseInt(station.dataset.stdCones || '6', 10);
+  let ackCones = null;      // the non-standard count the operator already confirmed
+  let lastConesBeep = null;
+  function conesCheck() {
+    const n = parseInt($('conesCount').value || '0', 10), off = n !== STD_CONES;
+    $('conesWarn').innerHTML = off
+      ? `<div class="alert alert-warning py-2 mb-0 d-flex justify-content-between align-items-center cones-alert"><span>⚠ عدد الكونات <b>${n}</b> — الطبيعي <b>${STD_CONES}</b></span><button type="button" class="btn btn-sm btn-dark" id="btnStdCones">رجّع ${STD_CONES}</button></div>`
+      : '';
+    $('conesCount').classList.toggle('is-invalid', off);
+    if (off && lastConesBeep !== n) { beep(700, 160, 2); }
+    lastConesBeep = off ? n : null;
+    if (!off) ackCones = null;   // back to standard: a later odd count must be confirmed again
+  }
+  $('conesWarn').addEventListener('click', e => {
+    if (!e.target.closest('#btnStdCones')) return;
+    $('conesCount').value = STD_CONES;
+    try { localStorage.setItem('scale.conesCount', String(STD_CONES)); } catch (x) {}
+    recalc();
+  });
+
   function recalc() {
+    conesCheck();
     const tare = tareOf();
     $('tare').textContent = tare.toFixed(3);
     const g = currentGross();
@@ -151,12 +174,23 @@
 
   // short beep like the old station: high tone = new weight ready, double tone = saved
   let audio = null;
+  let volume = 0.85;  // 0..1, adjusted with the slider and remembered on this PC
+  try { const v = parseFloat(localStorage.getItem('scale.volume')); if (!isNaN(v)) volume = Math.min(1, Math.max(0, v)); } catch (e) {}
+  if ($('beepVol')) {   // the volume slider is only shown to admin/store
+    $('beepVol').value = volume;
+    $('beepVol').addEventListener('input', () => {
+      volume = parseFloat($('beepVol').value);
+      try { localStorage.setItem('scale.volume', String(volume)); } catch (e) {}
+    });
+    $('beepVol').addEventListener('change', () => beep());
+    $('beepTest').addEventListener('click', () => beep(1200, 90, 2));
+  }
   function beep(freq = 1800, ms = 120, times = 1) {
     try {
       audio = audio || new (window.AudioContext || window.webkitAudioContext)();
       for (let i = 0; i < times; i++) {
         const o = audio.createOscillator(), g = audio.createGain();
-        o.frequency.value = freq; o.type = 'square'; g.gain.value = 0.15;
+        o.frequency.value = freq; o.type = 'square'; g.gain.value = 0.6 * volume * volume;   // squared so the low end of the slider is really quiet
         o.connect(g); g.connect(audio.destination);
         const t = audio.currentTime + i * (ms + 60) / 1000;
         o.start(t); o.stop(t + ms / 1000);
@@ -323,6 +357,12 @@
     if (saving) return;
     const g = currentGross();
     if (!g) return;
+    const nCones = parseInt($('conesCount').value || '0', 10);
+    if (nCones !== STD_CONES && ackCones !== nCones) {
+      beep(400, 200);
+      if (!confirm(`عدد الكونات ${nCones} مش ${STD_CONES} (الطبيعي). متأكد؟`)) return;
+      ackCones = nCones;
+    }
     if (currentWarn) {
       beep(400, 200);
       if (!confirm(currentWarn + '\n\nتحفظ الكرتونة برضه؟')) return;
@@ -417,6 +457,8 @@
   });
 
   // ---------- edit packing types (needs the admin password on save) ----------
+  // the dialog is only rendered for admin/store; the scale operator has no way to open it
+  if ($('packingModal')) (() => {
   const ptData = JSON.parse($('ptData').textContent);
   const ptModal = new bootstrap.Modal($('packingModal'));
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -476,6 +518,7 @@
       $('ptAdminPass').value = '';
     }
   });
+  })();
 
   recalc();
 })();

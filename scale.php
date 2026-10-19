@@ -2,6 +2,7 @@
 require __DIR__ . '/inc/bootstrap.php';
 $u = require_role('scale');
 
+$canEditPacking = $u['role'] !== 'scale';   // the scale operator can't edit/remove packing types or tune the sound
 $raws = items_by_type('raw');
 // a raw that's used up is deactivated: hide it and the counts made only from it
 $activeRaw = array_column($raws, 'id', 'id');
@@ -33,6 +34,7 @@ require __DIR__ . '/inc/header.php';
 <div class="row g-3" id="station"
      data-csrf="<?= csrf_token() ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>"
      data-target-per-cone="<?= e(setting('target_gross_per_cone', '6')) ?>" data-target-ok="<?= e(setting('target_ok_pct', '3')) ?>" data-target-warn="<?= e(setting('target_warn_pct', '6')) ?>"
+     data-std-cones="<?= (int)setting('default_cones', '6') ?>"
      data-usual="<?= e(json_encode((object)$usual)) ?>">
   <div class="col-xl-5">
     <div class="card p-3">
@@ -63,8 +65,10 @@ require __DIR__ . '/inc/header.php';
         <div class="col"><div class="text-muted">الصافي</div><div class="big-net text-success" id="net">0.000</div></div>
       </div>
       <button id="btnSave" class="btn btn-success btn-xl w-100 mt-3" disabled>حفظ وطباعة الستيكر</button>
+      <div id="conesWarn" class="mt-2"></div>
       <div id="warn" class="mt-2"></div>
       <div id="msg" class="mt-2"></div>
+      <?php if ($canEditPacking): ?><div class="d-flex align-items-center gap-2 mt-2 small text-muted"><span>🔊 مستوى الصوت</span><input type="range" id="beepVol" min="0" max="1" step="0.05" class="form-range flex-grow-1" style="max-width:220px"><button type="button" id="beepTest" class="btn btn-sm btn-outline-secondary py-0">جرّب</button></div><?php endif; ?>
       <div class="small text-muted mt-2" dir="rtl">اختصارات: <kbd>Enter</kbd> حفظ وطباعة — <kbd>F2</kbd> نفس الوزن — <kbd>F4</kbd> طباعة آخر كرتونة — <kbd>↑</kbd>/<kbd>↓</kbd> عدد الكونات</div>
     </div>
   </div>
@@ -74,7 +78,7 @@ require __DIR__ . '/inc/header.php';
         <div class="col-md-8"><label class="form-label">النمرة (الخيط التام)</label><select id="finished" class="form-select form-select-lg"><option value="">— اختر —</option><?php foreach ($finished as $i): ?><option value="<?= $i['id'] ?>" data-raw="<?= (int)$i['raw_item_id'] ?>" data-spec="<?= e(spec_key($i['spec'])) ?>"><?= e($i['code'] . ' — ' . $i['name']) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-4"><label class="form-label">البوي (الخام اللي على المكنة)</label><select id="raw" class="form-select"><option value="">كل الخامات</option><?php foreach ($raws as $i): ?><option value="<?= $i['id'] ?>" data-spec="<?= e(spec_key($i['spec'])) ?>"><?= e($i['code'] . ' — ' . $i['name'] . ($i['spec'] ? ' ← ' . $i['spec'] : '')) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-5"><label class="form-label d-flex justify-content-between">نوع التعبئة
-            <a href="#" id="btnEditPacking" class="small">تعديل الأوزان</a></label><select id="packing" class="form-select"><option value="">— اختر —</option>
+            <?php if ($canEditPacking): ?><a href="#" id="btnEditPacking" class="small">تعديل الأوزان</a><?php endif; ?></label><select id="packing" class="form-select"><option value="">— اختر —</option>
           <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones, true) ?></select></div>
         <div class="col-md-2"><label class="form-label">عدد الكونات</label><input id="conesCount" type="number" min="0" class="form-control num" value="<?= e(setting('default_cones', '6')) ?>"></div>
@@ -108,6 +112,7 @@ require __DIR__ . '/inc/header.php';
     </div>
   </div>
 </div>
+<?php if ($canEditPacking): ?>
 <div class="modal fade" id="packingModal" tabindex="-1">
   <div class="modal-dialog modal-xl"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">أنواع التعبئة — أوزان الفوارغ (كيلو)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -127,5 +132,6 @@ require __DIR__ . '/inc/header.php';
   </div></div>
 </div>
 <script type="application/json" id="ptData"><?= json_encode(['types' => $allPackingTypes, 'packs' => $packItems], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?></script>
+<?php endif; ?>
 <iframe id="printFrame" style="position:absolute;width:0;height:0;border:0;left:-9999px"></iframe>
 <?php require __DIR__ . '/inc/footer.php';

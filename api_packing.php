@@ -1,5 +1,5 @@
 <?php
-// Edit packing types from the scale station. Any logged-in user may call it, but every save
+// Edit packing types from the scale station. Any logged-in user except the scale operator may call it, but every save
 // must carry an active admin's password (checked here), with a lockout after repeated failures.
 require __DIR__ . '/inc/bootstrap.php';
 header('Content-Type: application/json; charset=utf-8');
@@ -12,6 +12,7 @@ function out(array $data, int $code = 200): never
 }
 
 if (!current_user()) out(['ok' => false, 'error' => 'انتهت الجلسة — سجّل دخول تاني'], 401);
+if (current_user()['role'] === 'scale') out(['ok' => false, 'error' => 'تعديل أنواع التعبئة مش متاح لعامل الميزان'], 403);
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['ok' => false, 'error' => 'POST only'], 405);
 csrf_check();
 
