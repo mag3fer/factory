@@ -1,6 +1,7 @@
 // Scale station: reads the Anheng indicator over RS-232 (Web Serial), computes tare/net, saves and prints.
 (() => {
   const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const station = $('station');
   const CSRF = station.dataset.csrf;
   const BAUD = parseInt(station.dataset.baud || '9600', 10);
@@ -127,6 +128,7 @@
 
   function recalc() {
     conesCheck();
+    showPallet();
     const tare = tareOf();
     $('tare').textContent = tare.toFixed(3);
     const g = currentGross();
@@ -341,13 +343,38 @@
     return res.json();
   }
 
-  function printLabel(id) {
-    const f = $('printFrame');
+  // Labels print one after another (a carton sticker, then the pallet sticker when a pallet fills up):
+  // each waits for the previous one to be handed to the printer.
+  const printQueue = [];
+  let printing = false;
+  function pumpPrint() {
+    if (printing || !printQueue.length) return;
+    printing = true;
+    const job = printQueue.shift(), f = $('printFrame');
+    let finished = false;
+    const done = () => { if (finished) return; finished = true; printing = false; pumpPrint(); };
     f.onload = () => {
       try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {}
-      post({ action: 'printed', id });
+      if (job.after) job.after();
+      setTimeout(done, 2000);
     };
-    f.src = 'label.php?id=' + id + '&t=' + Date.now();
+    setTimeout(done, 10000);   // never stay stuck if a page fails to load
+    f.src = job.url + (job.url.includes('?') ? '&' : '?') + 't=' + Date.now();
+  }
+  function printLabel(id) { printQueue.push({ url: 'label.php?id=' + id, after: () => post({ action: 'printed', id }) }); pumpPrint(); }
+  function printPalletLabel(id) { printQueue.push({ url: 'label_pallet.php?id=' + id }); pumpPrint(); }
+
+  // ---------- pallets: every PALLET_SIZE cartons of one count share a pallet number ----------
+  const PALLETS = (() => { try { return JSON.parse(station.dataset.pallets || '{}'); } catch (e) { return {}; } })();
+  const PALLET_SIZE = parseInt(station.dataset.palletSize || '20', 10);
+  function showPallet() {
+    const box = $('palletInfo'), fid = $('finished').value;
+    if (!fid) { box.classList.add('d-none'); return; }
+    const p = PALLETS[fid];
+    box.classList.remove('d-none');
+    box.innerHTML = p
+      ? `<i class="bi bi-boxes"></i> بالتة <b dir="ltr">${esc(p.serial)}</b> — فيها <b>${p.count}</b> من ${p.capacity} — الكرتونة الجاية <b>${p.count + 1}</b>`
+      : `<i class="bi bi-boxes"></i> هتبدأ بالتة جديدة — الكرتونة الجاية <b>1</b> من ${PALLET_SIZE}`;
   }
 
   function showMsg(html, cls) { $('msg').innerHTML = `<div class="alert alert-${cls} py-2 mb-0">${html}</div>`; }
@@ -376,9 +403,17 @@
         gross: g.value.toFixed(3), weight_source: g.source,
       });
       if (!r.ok) { showMsg(r.error, 'danger'); return; }
-      showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو`, 'success');
+      const pal = r.pallet;
+      showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو`
+        + (pal ? ` — بالتة <b dir="ltr">${pal.serial}</b> كرتونة <b>${pal.seq}/${pal.capacity}</b>` : '')
+        + (pal?.full ? '<br><b>🎉 البالتة اتملت — بيتطبع ستيكر البالتة</b>' : ''), 'success');
       beep(1200, 90, 2);
       printLabel(r.id);
+      if (pal) {
+        const fid = $('finished').value;
+        if (pal.full) { delete PALLETS[fid]; printPalletLabel(pal.id); setTimeout(() => beep(1500, 140, 3), 700); }
+        else PALLETS[fid] = { id: pal.id, serial: pal.serial, count: pal.count, capacity: pal.capacity };
+      }
       addRecent(r, g.value);
       refreshStats();
       awaitingNew = true;
@@ -461,7 +496,6 @@
   if ($('packingModal')) (() => {
   const ptData = JSON.parse($('ptData').textContent);
   const ptModal = new bootstrap.Modal($('packingModal'));
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   function ptRow(t) {
     const packs = ['<option value="">—</option>'].concat(ptData.packs.map(p =>

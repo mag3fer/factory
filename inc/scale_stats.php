@@ -36,3 +36,15 @@ function scale_usual_per_cone(): array
     }
     return $out;
 }
+
+// finished_item_id => the pallet that is filling up now (serial, cartons on it, capacity)
+function open_pallets(): array
+{
+    $out = [];
+    foreach (q("SELECT pl.id, pl.serial, pl.finished_item_id, pl.capacity,
+                       (SELECT COUNT(*) FROM packages p WHERE p.pallet_id=pl.id AND p.status<>'void') cnt
+                FROM pallets pl WHERE pl.full=0 ORDER BY pl.id DESC")->fetchAll() as $r) {
+        $out[(int)$r['finished_item_id']] = ['id' => (int)$r['id'], 'serial' => $r['serial'], 'count' => (int)$r['cnt'], 'capacity' => (int)$r['capacity']];
+    }
+    return $out;
+}

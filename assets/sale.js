@@ -4,6 +4,12 @@
   const root = $('sale'), TYPE = root.dataset.type, CSRF = root.dataset.csrf;
   const pkgs = new Map();      // package id -> package
   const prices = {};           // item id -> price (user-entered or prefilled)
+  const isDelivery = () => !!($('kindDelivery') && $('kindDelivery').checked);   // priceless delivery note instead of an invoice
+  document.querySelectorAll('input[name="kind"]').forEach(r => r.addEventListener('change', () => {
+    root.classList.toggle('delivery', isDelivery());
+    $('btnSave').innerHTML = isDelivery() ? '<i class="bi bi-printer"></i> حفظ وطباعة الإذن' : '<i class="bi bi-check2-circle"></i> حفظ الفاتورة';
+    totals();
+  }));
   const fmt = (v, d = 2) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -49,15 +55,29 @@
     try {
       const r = await api('lookup', { serial });
       if (!r.ok) { beep(false); msg(esc(r.error), 'danger'); return; }
-      const p = r.package;
-      pkgs.set(p.id, p);
-      if (prices[p.item_id] === undefined) {
-        if (TYPE === 'return' && p.sold_price !== null) prices[p.item_id] = p.sold_price;
-        else { const lp = await api('last_price', { item_id: p.item_id }); prices[p.item_id] = lp.ok && lp.price !== null ? lp.price : ''; }
+      // a pallet code brings all of its cartons that are still in stock
+      const list = r.packages || [r.package];
+      let added = 0;
+      for (const p of list) {
+        if (pkgs.has(p.id)) continue;
+        pkgs.set(p.id, p);
+        added++;
+        if (prices[p.item_id] === undefined) {
+          if (TYPE === 'return' && p.sold_price !== null) prices[p.item_id] = p.sold_price;
+          else { const lp = await api('last_price', { item_id: p.item_id }); prices[p.item_id] = lp.ok && lp.price !== null ? lp.price : ''; }
+        }
       }
       beep(true);
-      msg(`<i class="bi bi-check-circle"></i> ${esc(p.serial)} — ${esc(p.code)} — <b class="num">${fmt(p.net, 3)}</b> كيلو`, 'success');
-      render(p.id);
+      if (r.pallet) {
+        const sum = list.reduce((s, x) => s + x.net, 0);
+        const partial = r.pallet.available < r.pallet.capacity;
+        msg(`<i class="bi bi-boxes"></i> بالتة ${esc(r.pallet.serial)} — ضفت <b>${added}</b> كرتونة (<b class="num">${fmt(sum, 2)}</b> كيلو)`
+          + (partial ? ` — البالتة فيها ${r.pallet.available} متاحة من ${r.pallet.capacity}` : ''), partial ? 'warning' : 'success');
+      } else {
+        const p = list[0];
+        msg(`<i class="bi bi-check-circle"></i> ${esc(p.serial)} — ${esc(p.code)} — <b class="num">${fmt(p.net, 3)}</b> كيلو`, 'success');
+      }
+      render(list[list.length - 1].id);
     } catch (err) { beep(false); msg('مفيش اتصال بالسيرفر', 'danger'); }
   });
 
@@ -120,8 +140,11 @@
 
   function totals() {
     let sub = 0, ok = true;
+    const free = isDelivery();    // no prices on a delivery note
+    let totalKg = 0;
     groups().forEach(g => {
-      const pr = parseFloat(prices[g.item_id]);
+      totalKg += g.kg;
+      const pr = free ? 0 : parseFloat(prices[g.item_id]);
       if (isNaN(pr) || pr < 0) ok = false;
       const amt = isNaN(pr) ? 0 : Math.round(g.kg * pr * 100) / 100;
       sub += amt;
@@ -130,7 +153,8 @@
     });
     let manualCount = 0;
     $('manualTable').querySelectorAll('tbody tr').forEach(tr => {
-      const item = tr.querySelector('.m-item').value, q = parseFloat(tr.querySelector('.m-qty').value), pr = parseFloat(tr.querySelector('.m-price').value);
+      const item = tr.querySelector('.m-item').value, q = parseFloat(tr.querySelector('.m-qty').value), pr = free ? 0 : parseFloat(tr.querySelector('.m-price').value);
+      if (!isNaN(q)) totalKg += q;
       const amt = !isNaN(q) && !isNaN(pr) ? Math.round(q * pr * 100) / 100 : 0;
       tr.querySelector('.m-amount').textContent = fmt(amt);
       sub += amt;
@@ -141,6 +165,7 @@
     const total = Math.max(0, Math.round((sub - disc) * 100) / 100);
     $('subtotal').textContent = fmt(sub);
     $('total').textContent = fmt(total);
+    if ($('kgBig')) $('kgBig').textContent = fmt(totalKg, 3);
     $('btnSave').disabled = !($('customer').value && (pkgs.size || manualCount) && ok && disc <= sub);
   }
 
@@ -151,13 +176,14 @@
       item_id: tr.querySelector('.m-item').value, qty: tr.querySelector('.m-qty').value, price: tr.querySelector('.m-price').value,
     })).filter(m => m.item_id);
     const data = {
+      kind: isDelivery() ? 'delivery' : 'invoice', receiver: $('receiver').value, organizer: $('organizer').value, driver_name: $('driverName').value, car_no: $('carNo').value,
       inv_date: $('invDate').value, notes: $('notes').value, discount: $('discount').value, paid: $('paid').value, pay_method: $('payMethod').value,
       packages: [...pkgs.keys()], prices, manual,
     };
     try {
       const r = await api('save', { data: JSON.stringify(data) });
       if (!r.ok) { $('saveMsg').innerHTML = `<div class="alert alert-danger py-2">${esc(r.error)}</div>`; $('btnSave').disabled = false; return; }
-      location.href = 'sale_view.php?id=' + r.id + '&new=1';
+      location.href = 'sale_view.php?id=' + r.id + '&new=1' + (isDelivery() ? '&print=1' : '');
     } catch (e) {
       $('saveMsg').innerHTML = '<div class="alert alert-danger py-2">مفيش اتصال بالسيرفر — جرّب تاني</div>';
       $('btnSave').disabled = false;

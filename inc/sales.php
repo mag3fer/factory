@@ -4,6 +4,35 @@
 declare(strict_types=1);
 
 const SALE_TYPES = ['sale' => 'فاتورة بيع', 'return' => 'مرتجع بيع'];
+const SALE_KINDS = ['invoice' => 'فاتورة بيع', 'delivery' => 'إذن تسليم (مذكرة إخراج)'];
+
+/** Fields of the printed sheet that a print template can switch on/off (key => label shown in the settings panel). */
+const PRINT_FIELDS = [
+    'cones' => 'الكونات', 'cartons' => 'عدد الكراتين / الشكاير', 'receiver' => 'الجهة المستلمة', 'driver' => 'اسم السائق ورقم السيارة',
+    'warehouse' => 'المستودع', 'notes' => 'الملاحظات', 'balance' => 'رصيد العميل (في الفاتورة)',
+    'sign_org' => 'خانة المنظم', 'sign_rec' => 'خانة اسم وتوقيع المستلم', 'footer' => 'سطر اسم الشركة في آخر الورقة',
+];
+
+/** Settings of a print template merged over the defaults (everything printed, title = the document's own title). */
+function print_settings(?array $tpl, string $defaultTitle): array
+{
+    $s = ['title' => $defaultTitle] + array_fill_keys(array_keys(PRINT_FIELDS), 1);
+    if ($tpl) {
+        $saved = json_decode((string)$tpl['settings'], true) ?: [];
+        foreach ($saved as $k => $v) {
+            if ($k === 'title') { if (trim((string)$v) !== '') $s['title'] = (string)$v; }
+            elseif (isset(PRINT_FIELDS[$k])) $s[$k] = (int)$v;
+        }
+    }
+    return $s;
+}
+
+/** Title of a sales document: returns keep their own title, sales are an invoice or a priceless delivery note. */
+function sale_title(array $inv): string
+{
+    if ($inv['type'] === 'return') return SALE_TYPES['return'];
+    return SALE_KINDS[$inv['kind'] ?? 'invoice'] ?? SALE_TYPES['sale'];
+}
 const PAY_TYPES = ['receipt' => 'سند قبض', 'payment' => 'سند دفع'];
 const PAY_METHODS = ['cash' => 'نقدي', 'bank' => 'تحويل بنكي', 'cheque' => 'شيك', 'other' => 'أخرى'];
 
@@ -16,6 +45,30 @@ function package_sale(int $pkgId): ?array
 }
 
 /** Validate a scanned carton for a sale or a return. Returns the package row with item info. */
+/** A scanned code is a pallet (P00012) rather than a carton serial. */
+function is_pallet_serial(string $s): bool
+{
+    return (bool)preg_match('/^P\d{3,}$/i', trim($s));
+}
+
+/**
+ * Scanning a pallet adds all of its cartons that are still in stock.
+ * @return array{pallet: array, packages: array, total: int}
+ */
+function lookup_pallet(string $serial, string $type): array
+{
+    $serial = strtoupper(trim($serial));
+    if ($type !== 'sale') throw new InvalidArgumentException('الإرجاع بيتم بالكرتونة — امسح باركود الكرتونة نفسها');
+    $pl = q('SELECT * FROM pallets WHERE serial=?', [$serial])->fetch();
+    if (!$pl) throw new InvalidArgumentException("البالتة $serial مش موجودة");
+    $rows = q("SELECT p.*, i.code, i.name, i.unit FROM packages p JOIN items i ON i.id=p.finished_item_id
+               WHERE p.pallet_id=? AND p.status<>'void' ORDER BY p.pallet_seq", [$pl['id']])->fetchAll();
+    $avail = array_values(array_filter($rows, fn($r) => $r['status'] === 'in_stock'));
+    if (!$rows) throw new InvalidArgumentException("البالتة $serial فاضية");
+    if (!$avail) throw new InvalidArgumentException("كل كراتين البالتة $serial اتباعت قبل كده");
+    return ['pallet' => $pl, 'packages' => $avail, 'total' => count($rows)];
+}
+
 function lookup_package(string $serial, string $type, int $customerId): array
 {
     $p = q('SELECT p.*, i.code, i.name, i.unit FROM packages p JOIN items i ON i.id=p.finished_item_id WHERE p.serial=?', [trim($serial)])->fetch();
@@ -41,6 +94,8 @@ function lookup_package(string $serial, string $type, int $customerId): array
 function save_sale(array $h, array $pkgIds, array $prices, array $manual, int $userId): int
 {
     $type = $h['type'] === 'return' ? 'return' : 'sale';
+    // a delivery note is a sale without prices: everything is saved at price 0, no discount, no payment
+    $kind = ($h['kind'] ?? '') === 'delivery' && $type === 'sale' ? 'delivery' : 'invoice';
     $customer = q("SELECT * FROM parties WHERE id=? AND active=1", [(int)$h['customer_id']])->fetch();
     if (!$customer) throw new InvalidArgumentException('اختر العميل');
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$h['inv_date'])) throw new InvalidArgumentException('تاريخ غير صحيح');
@@ -64,14 +119,14 @@ function save_sale(array $h, array $pkgIds, array $prices, array $manual, int $u
         }
         $lines = [];
         foreach ($groups as $itemId => $g) {
-            $price = (float)($prices[$itemId] ?? -1);
+            $price = $kind === 'delivery' ? 0.0 : (float)($prices[$itemId] ?? -1);
             if ($price < 0) throw new InvalidArgumentException('اكتب سعر كل نمرة');
             $lines[] = ['item_id' => $itemId, 'source' => 'packages', 'count' => count($g['ids']), 'pieces' => $g['pieces'], 'qty' => $g['qty'], 'price' => $price, 'ids' => $g['ids']];
         }
         foreach ($manual as $m) {
             $item = q('SELECT id, unit FROM items WHERE id=? AND active=1', [(int)($m['item_id'] ?? 0)])->fetch();
             $qty = round((float)($m['qty'] ?? 0), 3);
-            $price = (float)($m['price'] ?? -1);
+            $price = $kind === 'delivery' ? 0.0 : (float)($m['price'] ?? -1);
             if (!$item || $qty <= 0) throw new InvalidArgumentException('صنف يدوي ناقص بيانات (الصنف والكمية)');
             if ($price < 0) throw new InvalidArgumentException('اكتب سعر الصنف اليدوي');
             $lines[] = ['item_id' => (int)$item['id'], 'source' => 'manual', 'count' => 0, 'pieces' => $item['unit'] === 'pcs' ? (int)round($qty) : 0, 'qty' => $qty, 'price' => $price, 'ids' => []];
@@ -80,13 +135,15 @@ function save_sale(array $h, array $pkgIds, array $prices, array $manual, int $u
         foreach ($lines as &$l) { $l['amount'] = round($l['qty'] * $l['price'], 2); $subtotal += $l['amount']; }
         unset($l);
         $subtotal = round($subtotal, 2);
-        $discount = round(max(0, (float)($h['discount'] ?? 0)), 2);
+        $discount = $kind === 'delivery' ? 0.0 : round(max(0, (float)($h['discount'] ?? 0)), 2);
         if ($discount > $subtotal) throw new InvalidArgumentException('الخصم أكبر من الإجمالي');
         $total = round($subtotal - $discount, 2);
 
         $num = (int)q('SELECT COALESCE(MAX(number),0)+1 FROM sales_invoices WHERE type=? FOR UPDATE', [$type])->fetchColumn();
-        q('INSERT INTO sales_invoices (type, number, inv_date, customer_id, subtotal, discount, total, notes, user_id) VALUES (?,?,?,?,?,?,?,?,?)',
-            [$type, $num, $h['inv_date'], $customer['id'], $subtotal, $discount, $total, trim((string)($h['notes'] ?? '')) ?: null, $userId]);
+        $clip = fn(string $k, int $max) => mb_substr(trim((string)($h[$k] ?? '')), 0, $max) ?: null;
+        q('INSERT INTO sales_invoices (type, kind, number, inv_date, customer_id, subtotal, discount, total, notes, driver_name, car_no, receiver, organizer, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [$type, $kind, $num, $h['inv_date'], $customer['id'], $subtotal, $discount, $total, trim((string)($h['notes'] ?? '')) ?: null,
+             $clip('driver_name', 100), $clip('car_no', 50), $clip('receiver', 150), $clip('organizer', 100), $userId]);
         $invId = (int)$pdo->lastInsertId();
         $sign = $type === 'sale' ? -1 : 1;   // stock out on sale, back in on return
         $moveDate = $h['inv_date'] . ' ' . date('H:i:s');
@@ -101,7 +158,7 @@ function save_sale(array $h, array $pkgIds, array $prices, array $manual, int $u
                 q('UPDATE packages SET status=? WHERE id=?', [$type === 'sale' ? 'sold' : 'in_stock', $pid]);
             }
         }
-        $paid = round((float)($h['paid'] ?? 0), 2);
+        $paid = $kind === 'delivery' ? 0.0 : round((float)($h['paid'] ?? 0), 2);
         if ($paid > 0) {
             insert_payment([
                 'type' => $type === 'sale' ? 'receipt' : 'payment', 'pay_date' => $h['inv_date'], 'party_id' => $customer['id'], 'amount' => $paid,
@@ -174,7 +231,7 @@ function party_ledger(int $partyId, string $from, string $to): array
     $rows = [];
     foreach (q("SELECT * FROM sales_invoices WHERE customer_id=? AND voided=0 AND inv_date BETWEEN ? AND ? ORDER BY inv_date, id", [$partyId, $from, $to])->fetchAll() as $s) {
         $kg = (float)q('SELECT COALESCE(SUM(qty),0) FROM sales_lines WHERE invoice_id=?', [$s['id']])->fetchColumn();
-        $rows[] = ['date' => $s['inv_date'], 'sort' => $s['created_at'], 'kind' => SALE_TYPES[$s['type']], 'ref' => $s['number'],
+        $rows[] = ['date' => $s['inv_date'], 'sort' => $s['created_at'], 'kind' => sale_title($s), 'ref' => $s['number'],
             'desc' => fmt_qty($kg, 1) . ' كيلو' . ($s['notes'] ? ' — ' . $s['notes'] : ''),
             'debit' => $s['type'] === 'sale' ? (float)$s['total'] : 0, 'credit' => $s['type'] === 'return' ? (float)$s['total'] : 0, 'link' => 'sale_view.php?id=' . $s['id']];
     }

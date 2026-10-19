@@ -105,7 +105,9 @@ function save_package(array $d, int $userId): array
 
     $cones = max(0, (int)$d['cones_count']);
     $gross = round((float)$d['gross'], 3);
-    $coneW = (float)$pt['cone_weight'];
+    // the cone's own weight comes from the chosen cone item (حسب لون/نوع الكونة); the packing type's cone weight is only a fallback for old types
+    $coneW = $cone && (float)$cone['tare_weight'] > 0 ? (float)$cone['tare_weight'] : (float)$pt['cone_weight'];
+    if ($cones > 0 && $coneW <= 0) throw new InvalidArgumentException('وزن الكونة مش معروف — اختار لون الكونة (أو حدد وزنها من «الأصناف»)');
     $packW = (float)$pt['pack_weight'];
     $bagW = (float)$pt['bag_weight'];
     $tare = round($cones * $coneW + $packW + $cones * $bagW, 3);
@@ -131,8 +133,9 @@ function save_package(array $d, int $userId): array
             if ($cone && $cones > 0) q($mv, [$cone['id'], -$cones, -$cones, $pkgId, $now]);
             if ($pack) q($mv, [$pack['id'], -1, -1, $pkgId, $now]);
             q($mv, [$raw['id'], -$net, 0, $pkgId, $now]);   // the yarn's net weight comes out of the raw POY
+            $pallet = assign_pallet($pkgId, (int)$fin['id']);
             $pdo->commit();
-            return ['id' => $pkgId, 'serial' => $serial, 'tare' => $tare, 'net' => $net];
+            return ['id' => $pkgId, 'serial' => $serial, 'tare' => $tare, 'net' => $net, 'pallet' => $pallet];
         } catch (Throwable $ex) {
             $pdo->rollBack();
             $duplicate = $ex instanceof PDOException && (int)($ex->errorInfo[1] ?? 0) === 1062;
@@ -147,11 +150,39 @@ function void_package(int $pkgId, string $reason): void
 {
     $pdo = db();
     $pdo->beginTransaction();
-    $st = q("UPDATE packages SET status='void', voided_at=NOW(), void_reason=? WHERE id=? AND status='in_stock'", [$reason, $pkgId]);
+    $palletId = q('SELECT pallet_id FROM packages WHERE id=? FOR UPDATE', [$pkgId])->fetchColumn();
+    $st = q("UPDATE packages SET status='void', voided_at=NOW(), void_reason=?, pallet_id=NULL, pallet_seq=NULL WHERE id=? AND status='in_stock'", [$reason, $pkgId]);
     if ($st->rowCount() !== 1) {
         $pdo->rollBack();
         throw new RuntimeException('الكرتونة غير موجودة أو تم بيعها / إلغاؤها');
     }
     q("DELETE FROM stock_moves WHERE source='package' AND source_id=?", [$pkgId]);
+    // the freed slot reopens the pallet: the next carton of that count takes the empty number
+    if ($palletId) q('UPDATE pallets SET full=0, closed_at=NULL WHERE id=?', [$palletId]);
     $pdo->commit();
+}
+
+/**
+ * Put a freshly saved carton on the open pallet of its count (or start a new one) and give it the
+ * lowest free number 1..capacity. Marks the pallet full when the last slot is taken.
+ * Must run inside the save transaction (locks the pallet row).
+ */
+function assign_pallet(int $pkgId, int $itemId): array
+{
+    $cap = max(1, (int)setting('pallet_size', '20'));
+    $pl = q('SELECT * FROM pallets WHERE finished_item_id=? AND full=0 ORDER BY id LIMIT 1 FOR UPDATE', [$itemId])->fetch();
+    if (!$pl) {
+        q('INSERT INTO pallets (serial, finished_item_id, capacity) VALUES (?,?,?)', ['T' . bin2hex(random_bytes(6)), $itemId, $cap]);
+        $pid = (int)db()->lastInsertId();
+        q("UPDATE pallets SET serial=CONCAT('P', LPAD(id, 5, '0')) WHERE id=?", [$pid]);
+        $pl = q('SELECT * FROM pallets WHERE id=?', [$pid])->fetch();
+    }
+    $used = array_map('intval', q("SELECT pallet_seq FROM packages WHERE pallet_id=? AND status<>'void'", [$pl['id']])->fetchAll(PDO::FETCH_COLUMN));
+    $seq = 1;
+    while (in_array($seq, $used, true)) $seq++;
+    q('UPDATE packages SET pallet_id=?, pallet_seq=? WHERE id=?', [$pl['id'], $seq, $pkgId]);
+    $count = count($used) + 1;
+    $full = $count >= (int)$pl['capacity'];
+    if ($full) q('UPDATE pallets SET full=1, closed_at=NOW() WHERE id=?', [$pl['id']]);
+    return ['id' => (int)$pl['id'], 'serial' => $pl['serial'], 'seq' => $seq, 'count' => $count, 'capacity' => (int)$pl['capacity'], 'full' => $full];
 }

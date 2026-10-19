@@ -22,6 +22,14 @@ $customerId = (int)($_POST['customer_id'] ?? 0);
 try {
     switch ($_POST['action'] ?? '') {
         case 'lookup':
+            if (is_pallet_serial((string)($_POST['serial'] ?? ''))) {
+                $r = lookup_pallet((string)$_POST['serial'], $type);
+                out(['ok' => true, 'pallet' => ['serial' => $r['pallet']['serial'], 'capacity' => (int)$r['pallet']['capacity'], 'total' => $r['total'], 'available' => count($r['packages'])],
+                    'packages' => array_map(fn($p) => [
+                        'id' => (int)$p['id'], 'serial' => $p['serial'], 'item_id' => (int)$p['finished_item_id'], 'code' => $p['code'], 'name' => $p['name'],
+                        'net' => (float)$p['net'], 'cones' => (int)$p['cones_count'], 'sold_price' => null,
+                    ], $r['packages'])]);
+            }
             $p = lookup_package((string)($_POST['serial'] ?? ''), $type, $customerId);
             out(['ok' => true, 'package' => [
                 'id' => (int)$p['id'], 'serial' => $p['serial'], 'item_id' => (int)$p['finished_item_id'], 'code' => $p['code'], 'name' => $p['name'],
@@ -40,7 +48,8 @@ try {
             $data = json_decode((string)($_POST['data'] ?? ''), true);
             if (!is_array($data)) out(['ok' => false, 'error' => 'بيانات غير صحيحة'], 422);
             $id = save_sale([
-                'type' => $type, 'inv_date' => $data['inv_date'] ?? '', 'customer_id' => $customerId, 'notes' => $data['notes'] ?? '',
+                'type' => $type, 'kind' => $data['kind'] ?? 'invoice', 'inv_date' => $data['inv_date'] ?? '', 'customer_id' => $customerId, 'notes' => $data['notes'] ?? '',
+                'driver_name' => $data['driver_name'] ?? '', 'car_no' => $data['car_no'] ?? '', 'receiver' => $data['receiver'] ?? '', 'organizer' => $data['organizer'] ?? '',
                 'discount' => $data['discount'] ?? 0, 'paid' => $data['paid'] ?? 0, 'pay_method' => $data['pay_method'] ?? 'cash',
             ], (array)($data['packages'] ?? []), (array)($data['prices'] ?? []), (array)($data['manual'] ?? []), $u['id']);
             out(['ok' => true, 'id' => $id]);

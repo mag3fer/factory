@@ -4,9 +4,9 @@
 require __DIR__ . '/inc/bootstrap.php';
 require_role();
 
-$p = q("SELECT p.*, f.code fcode, f.name fname, f.lot_no, f.grade, r.lot_no rlot, c.color cone_color, c.name cname
+$p = q("SELECT p.*, f.code fcode, f.name fname, f.lot_no, f.grade, r.lot_no rlot, c.color cone_color, c.name cname, pl.serial pallet_serial, pl.capacity pallet_cap
         FROM packages p JOIN items f ON f.id=p.finished_item_id
-        LEFT JOIN items r ON r.id=p.raw_item_id LEFT JOIN items c ON c.id=p.cone_item_id
+        LEFT JOIN items r ON r.id=p.raw_item_id LEFT JOIN items c ON c.id=p.cone_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id
         WHERE p.id=?", [(int)($_GET['id'] ?? 0)])->fetch();
 if (!$p) { http_response_code(404); exit('غير موجود'); }
 $w = (int)setting('label_width_mm', '76');
@@ -37,6 +37,8 @@ tr.net td.v { font-size: 15pt; }
 .info .row b { font-weight: 700; white-space: nowrap; padding-right: 2mm; }
 .addr { direction: rtl; text-align: right; }
 .made { font-size: 9pt; font-weight: 700; margin-top: .8mm; }
+.pal { width: 100%; margin-top: 1.4mm; border: .35mm solid #000; padding: .6mm 1.5mm; display: flex; justify-content: space-between; align-items: center; font-weight: 800; direction: ltr; }
+.pal .pn { font-size: 11pt; letter-spacing: .5pt; } .pal .ps { font-size: 15pt; }
 .bc { margin-top: auto; width: 100%; text-align: center; }
 .bc svg { width: 92%; height: 12mm; }
 .bc .s { display: flex; justify-content: space-between; font-size: 7.5pt; padding: 0 2mm; }
@@ -60,6 +62,7 @@ tr.net td.v { font-size: 15pt; }
     <?php if (setting('company_address')): ?><div class="row"><b>Address :</b><span class="addr"><?= e(setting('company_address')) ?></span></div><?php endif; ?>
   </div>
   <div class="made">Made in Egypt - صنع في مصر</div>
+  <?php if ($p['pallet_serial']): ?><div class="pal"><span class="pn">PALLET <?= e($p['pallet_serial']) ?></span><span class="ps"><?= (int)$p['pallet_seq'] ?> / <?= (int)$p['pallet_cap'] ?></span></div><?php endif; ?>
   <div class="bc"><svg id="bc"></svg>
     <div class="s"><span><?= e(date('d/m/Y H:i', strtotime($p['created_at']))) ?></span><span class="n"><?= e($p['serial']) ?></span><span><?= e($p['fcode']) ?></span></div>
   </div>

@@ -18,6 +18,8 @@ require __DIR__ . '/inc/scale_stats.php';
 $stats = scale_stats();
 $todayTotal = ['n' => $stats['total']['n'], 'net' => $stats['total']['net']];
 $usual = scale_usual_per_cone();
+$openPallets = open_pallets();
+$palletSize = max(1, (int)setting('pallet_size', '20'));
 
 function opt(array $items, bool $withTare = false): string
 {
@@ -35,6 +37,7 @@ require __DIR__ . '/inc/header.php';
      data-csrf="<?= csrf_token() ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>"
      data-target-per-cone="<?= e(setting('target_gross_per_cone', '6')) ?>" data-target-ok="<?= e(setting('target_ok_pct', '3')) ?>" data-target-warn="<?= e(setting('target_warn_pct', '6')) ?>"
      data-std-cones="<?= (int)setting('default_cones', '6') ?>"
+     data-pallets="<?= e(json_encode((object)$openPallets)) ?>" data-pallet-size="<?= $palletSize ?>"
      data-usual="<?= e(json_encode((object)$usual)) ?>">
   <div class="col-xl-5">
     <div class="card p-3">
@@ -83,6 +86,7 @@ require __DIR__ . '/inc/header.php';
         <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones, true) ?></select></div>
         <div class="col-md-2"><label class="form-label">عدد الكونات</label><input id="conesCount" type="number" min="0" class="form-control num" value="<?= e(setting('default_cones', '6')) ?>"></div>
       </div>
+      <div id="palletInfo" class="pallet-info mt-2 d-none"></div>
       <div class="small text-muted mt-2" id="tareDetail"></div>
     </div>
     <div class="card p-3 mb-3">

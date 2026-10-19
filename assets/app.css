@@ -151,6 +151,7 @@ a { color: var(--tl-blue); }
 .tb-track { position: relative; height: 10px; margin-top: 5px; border-radius: 6px; background: linear-gradient(90deg, #ef4444, #f59e0b 25%, #10b981 37.5%, #10b981 62.5%, #f59e0b 75%, #ef4444); opacity: .85; }
 .tb-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: #111827; }
 .tb-dot { position: absolute; top: -4px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: #fff; border: 3px solid var(--c); box-shadow: 0 1px 4px rgba(0, 0, 0, .4); transition: left .4s cubic-bezier(.3, 1.4, .5, 1); }
+.pallet-info { padding: 6px 10px; border-radius: 8px; background: #eef2ff; color: #3730a3; font-size: .95rem; }
 .dev-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #10b981; margin-left: 4px; }
 .dev-dot.warn { background: #f59e0b; } .dev-dot.bad { background: #ef4444; }
 #btnSave.waiting { background: #dc2626 !important; border-color: #b91c1c !important; color: #fff !important; opacity: 1 !important; animation: redPulse 1.2s ease-in-out infinite; }
