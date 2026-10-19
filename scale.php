@@ -13,7 +13,10 @@ $packItems = q("SELECT id, code, name FROM items WHERE type='pack' AND active=1 
 $recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.status, p.created_at, i.code, i.name
              FROM packages p JOIN items i ON i.id=p.finished_item_id
              WHERE DATE(p.created_at)=CURDATE() ORDER BY p.id DESC LIMIT 15")->fetchAll();
-$todayTotal = q("SELECT COUNT(*) n, COALESCE(SUM(net),0) net FROM packages WHERE status<>'void' AND DATE(created_at)=CURDATE()")->fetch();
+require __DIR__ . '/inc/scale_stats.php';
+$stats = scale_stats();
+$todayTotal = ['n' => $stats['total']['n'], 'net' => $stats['total']['net']];
+$usual = scale_usual_per_cone();
 
 function opt(array $items, bool $withTare = false): string
 {
@@ -28,7 +31,8 @@ $pageScripts = ['assets/scale.js?v=' . filemtime(__DIR__ . '/assets/scale.js')];
 require __DIR__ . '/inc/header.php';
 ?>
 <div class="row g-3" id="station"
-     data-csrf="<?= csrf_token() ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>">
+     data-csrf="<?= csrf_token() ?>" data-baud="<?= e(setting('scale_baud', '9600')) ?>"
+     data-usual="<?= e(json_encode((object)$usual)) ?>">
   <div class="col-xl-5">
     <div class="card p-3">
       <div class="d-flex justify-content-between align-items-center mb-2">
@@ -52,7 +56,9 @@ require __DIR__ . '/inc/header.php';
         <div class="col"><div class="text-muted">الصافي</div><div class="big-net text-success" id="net">0.000</div></div>
       </div>
       <button id="btnSave" class="btn btn-success btn-xl w-100 mt-3" disabled>حفظ وطباعة الستيكر</button>
+      <div id="warn" class="mt-2"></div>
       <div id="msg" class="mt-2"></div>
+      <div class="small text-muted mt-2" dir="rtl">اختصارات: <kbd>Enter</kbd> حفظ وطباعة — <kbd>F2</kbd> نفس الوزن — <kbd>F4</kbd> طباعة آخر كرتونة — <kbd>↑</kbd>/<kbd>↓</kbd> عدد الكونات</div>
     </div>
   </div>
   <div class="col-xl-7">
@@ -63,10 +69,22 @@ require __DIR__ . '/inc/header.php';
         <div class="col-md-5"><label class="form-label d-flex justify-content-between">نوع التعبئة
             <a href="#" id="btnEditPacking" class="small">تعديل الأوزان</a></label><select id="packing" class="form-select"><option value="">— اختر —</option>
           <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>
-        <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones) ?></select></div>
+        <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones, true) ?></select></div>
         <div class="col-md-2"><label class="form-label">عدد الكونات</label><input id="conesCount" type="number" min="0" class="form-control num" value="<?= e(setting('default_cones', '6')) ?>"></div>
       </div>
       <div class="small text-muted mt-2" id="tareDetail"></div>
+    </div>
+    <div class="card p-3 mb-3">
+      <div class="d-flex justify-content-between"><h6>ملخص النهارده</h6><span class="text-muted small">آخر ساعة: <b id="hourN"><?= (int)$stats['hour']['n'] ?></b> كرتونة — <b class="num" id="hourNet"><?= fmt_qty($stats['hour']['net'], 1) ?></b> كيلو</span></div>
+      <table class="table table-sm mb-0" id="summary">
+        <thead><tr><th>النمرة</th><th>كراتين</th><th>كونات</th><th>صافي (كيلو)</th></tr></thead>
+        <tbody>
+        <?php foreach ($stats['items'] as $r): ?>
+          <tr><td><?= e($r['code']) ?></td><td><?= (int)$r['n'] ?></td><td><?= (int)$r['cones'] ?></td><td class="num fw-bold"><?= fmt_qty($r['net'], 1) ?></td></tr>
+        <?php endforeach; ?>
+        <?php if (!$stats['items']): ?><tr><td colspan="4" class="text-muted text-center">لسه مفيش كراتين النهارده</td></tr><?php endif; ?>
+        </tbody>
+      </table>
     </div>
     <div class="card p-3">
       <div class="d-flex justify-content-between"><h6>آخر الكراتين النهارده</h6><span class="text-muted">الإجمالي: <b class="num" id="todayNet"><?= fmt_qty($todayTotal['net'], 1) ?></b> كيلو — <b id="todayN"><?= (int)$todayTotal['n'] ?></b> كرتونة</span></div>
@@ -87,9 +105,9 @@ require __DIR__ . '/inc/header.php';
   <div class="modal-dialog modal-xl"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">أنواع التعبئة — أوزان الفوارغ (كيلو)</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
-      <div class="small text-muted mb-2">الفوارغ = عدد الكونات × وزن الكونة + وزن الكرتونة/الشكارة + عدد الكونات × وزن الكيس. التعديل مش بيغيّر الكراتين اللي اتسجلت قبل كده.</div>
+      <div class="small text-muted mb-2">الفوارغ = عدد الكونات × وزن الكونة (بيتاخد من لون الكونة المختارة، وبيتعدّل من «الأصناف») + وزن الكرتونة/الشكارة + عدد الكونات × وزن الكيس. التعديل مش بيغيّر الكراتين اللي اتسجلت قبل كده.</div>
       <table class="table table-sm align-middle" id="ptTable">
-        <thead><tr><th>الاسم</th><th>الكرتونة/الشكارة (مخزن)</th><th>وزن الكونة</th><th>وزن الكرتونة/الشكارة</th><th>وزن الكيس</th><th>نشط</th></tr></thead>
+        <thead><tr><th>الاسم</th><th>الكرتونة/الشكارة (مخزن)</th><th class="d-none">وزن الكونة</th><th>وزن الكرتونة/الشكارة</th><th>وزن الكيس (على كل كونة)</th><th>نشط</th></tr></thead>
         <tbody></tbody>
       </table>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="ptAdd">+ نوع جديد</button>

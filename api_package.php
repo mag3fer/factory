@@ -26,6 +26,9 @@ try {
         case 'printed':
             q('UPDATE packages SET printed_count = printed_count + 1 WHERE id=?', [(int)$_POST['id']]);
             out(['ok' => true]);
+        case 'stats':
+            require __DIR__ . '/inc/scale_stats.php';
+            out(['ok' => true] + scale_stats());
         case 'void':
             if (!in_array($u['role'], ['admin', 'store'], true)) out(['ok' => false, 'error' => 'الإلغاء للمدير أو أمين المخزن'], 403);
             void_package((int)$_POST['id'], trim($_POST['reason'] ?? ''));

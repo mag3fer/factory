@@ -44,17 +44,21 @@
   $('conesCount').addEventListener('input', recalc);
   $('manualGross').addEventListener('input', recalc);
 
-  // tare per packing type, same formula as the old station: cones × cone + carton/sack + cones × bag
+  // tare = cones × cone weight (from the chosen cone) + carton/sack + cones × bag
+  let coneMissing = false;
   function tareOf() {
     const pt = $('packing').selectedOptions[0];
-    const coneW = parseFloat(pt?.dataset.cone || '0');
+    const coneOpt = $('cone').selectedOptions[0];
+    const coneItemW = parseFloat(coneOpt?.dataset.tare || '0');
+    const coneW = coneItemW > 0 ? coneItemW : parseFloat(pt?.dataset.cone || '0');   // the packing type's cone weight is only a fallback for old types
     const packW = parseFloat(pt?.dataset.pack || '0');
     const bagW = parseFloat(pt?.dataset.bag || '0');
     const n = Math.max(0, parseInt($('conesCount').value || '0', 10));
     const tare = n * coneW + packW + n * bagW;
-    $('tareDetail').textContent = $('packing').value
-      ? `الفوارغ = ${n} كونة × ${coneW.toFixed(3)} + كرتونة/شكارة ${packW.toFixed(3)} + ${n} كيس × ${bagW.toFixed(3)} = ${tare.toFixed(3)} كيلو`
-      : 'اختر نوع التعبئة عشان الفوارغ تتحسب';
+    coneMissing = n > 0 && coneW <= 0;
+    $('tareDetail').textContent = !$('packing').value ? 'اختر كرتون أو شكارة عشان الفوارغ تتحسب'
+      : coneMissing ? 'اختر لون الكونة — وزن الكونة مش معروف'
+      : `الفوارغ = ${n} كونة × ${coneW.toFixed(3)} + كرتونة/شكارة ${packW.toFixed(3)} + ${n} كيس × ${bagW.toFixed(3)} = ${tare.toFixed(3)} كيلو`;
     return Math.round(tare * 1000) / 1000;
   }
 
@@ -65,24 +69,45 @@
     return null;
   }
 
+  // A weight that looks wrong gets a visible warning and a confirmation before saving.
+  const USUAL = (() => { try { return JSON.parse(station.dataset.usual || '{}'); } catch (e) { return {}; } })();
+  const MAX_KG = 150;
+  let currentWarn = '';
+  function sanity(g, net) {
+    if (!g) return '';
+    if (g.value > MAX_KG) return `الوزن أكبر من سعة الميزان (${MAX_KG} كيلو) — اتأكد من القراءة`;
+    if (net <= 0) return 'الوزن القائم أقل من الفوارغ — اتأكد من نوع التعبئة وعدد الكونات';
+    const n = parseInt($('conesCount').value || '0', 10), u = USUAL[$('finished').value];
+    if (n > 0 && u) {
+      const pc = net / n;
+      if (Math.abs(pc - u) / u > 0.25) return `الكونة طالعة ${pc.toFixed(2)} كيلو والمعتاد للنمرة دي حوالي ${u.toFixed(2)} — اتأكد من عدد الكونات والنمرة`;
+    }
+    return '';
+  }
+
   function recalc() {
     const tare = tareOf();
     $('tare').textContent = tare.toFixed(3);
     const g = currentGross();
     const net = g ? Math.round((g.value - tare) * 1000) / 1000 : 0;
     $('net').textContent = net.toFixed(3);
-    $('btnSave').disabled = !(g && net > 0 && $('finished').value && $('packing').value);
+    currentWarn = sanity(g, net);
+    $('warn').innerHTML = currentWarn ? `<div class="alert alert-warning py-2 mb-0">⚠ ${currentWarn}</div>` : '';
+    $('btnSave').disabled = !(g && net > 0 && $('finished').value && $('packing').value && !coneMissing);
     $('btnSave').textContent = !$('finished').value ? 'اختر النمرة الأول'
-      : !$('packing').value ? 'اختر نوع التعبئة'
+      : !$('packing').value ? 'اختر كرتون أو شكارة'
+      : coneMissing ? 'اختر لون الكونة'
       : (!g && usedValue !== null ? 'تم الحفظ — حط الكرتونة الجاية…' : 'حفظ وطباعة الستيكر');
     $('display').classList.toggle('unstable', liveGross !== null && !fresh);
     // two cartons in a row can weigh exactly the same; the indicator won't resend, so let the operator confirm
     $('btnSameWeight').classList.toggle('d-none', !(usedValue !== null && liveGross === usedValue && !fresh));
   }
-  $('btnSameWeight').addEventListener('click', () => {
+  function sameWeight() {
+    if ($('btnSameWeight').classList.contains('d-none')) return;
     if (!confirm(`متأكد إن فيه كرتونة جديدة على الميزان ووزنها ${liveGross.toFixed(2)} كيلو؟`)) return;
     usedValue = null; fresh = true; recalc();
-  });
+  }
+  $('btnSameWeight').addEventListener('click', sameWeight);
 
   // ---------- Web Serial ----------
   // Indicator frames vary by model: "ST,GS,+  12.34kg", "  12.34 kg", or reversed "=43.2100" (= 0012.34).
@@ -141,8 +166,9 @@
     const dec = new TextDecoder();
     let buf = '';
     keepReading = true;
+    const myPort = port;
     setStatus('الميزان متصل', 'bg-success');
-    while (keepReading && port?.readable) {
+    while (keepReading && port === myPort && port?.readable) {
       reader = port.readable.getReader();
       try {
         while (true) {
@@ -165,10 +191,35 @@
         reader.releaseLock();
       }
     }
-    if (keepReading) setStatus('انقطع الاتصال بالميزان', 'bg-danger');
+    if (port !== myPort) return;   // the operator reconnected manually; the new loop owns the display now
     $('display').classList.add('offline');
     fresh = false;
     recalc();
+    if (keepReading) {             // lost unexpectedly (cable, USB adapter): release the port and keep trying
+      setStatus('انقطع الاتصال بالميزان — بحاول أوصل تاني…', 'bg-danger');
+      beep(500, 300, 2);
+      try { await port.close(); } catch (e) {}
+      port = null;
+      scheduleReconnect();
+    }
+  }
+
+  let retryTimer = null;
+  function scheduleReconnect() {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(autoConnect, 3000);
+  }
+  async function autoConnect() {
+    if (!('serial' in navigator) || (port && keepReading)) return;
+    try {
+      const ports = await navigator.serial.getPorts();
+      if (!ports.length) return;
+      await openPort(ports[0]);
+    } catch (e) {
+      port = null;
+      setStatus('البورت مشغول أو الميزان مفصول — بحاول تاني…', 'bg-warning text-dark');
+      scheduleReconnect();
+    }
   }
 
   async function closePort() {
@@ -206,7 +257,8 @@
 
   // reconnect automatically to a port the user already allowed
   if ('serial' in navigator) {
-    navigator.serial.getPorts().then(ports => { if (ports.length) openPort(ports[0]).catch(e => setStatus('البورت مشغول — اقفل برنامج الميزان القديم', 'bg-warning text-dark')); });
+    autoConnect();
+    navigator.serial.addEventListener('connect', () => scheduleReconnect());   // adapter plugged back in
   }
 
   // ---------- save & print ----------
@@ -232,6 +284,10 @@
     if (saving) return;
     const g = currentGross();
     if (!g) return;
+    if (currentWarn) {
+      beep(400, 200);
+      if (!confirm(currentWarn + '\n\nتحفظ الكرتونة برضه؟')) return;
+    }
     saving = true;
     $('btnSave').disabled = true;
     try {
@@ -245,6 +301,7 @@
       beep(1200, 90, 2);
       printLabel(r.id);
       addRecent(r, g.value);
+      refreshStats();
       $('manualGross').value = '';
       if (g.source === 'scale') { usedValue = g.value; fresh = false; }
     } catch (e) {
@@ -268,6 +325,22 @@
     $('todayNet').textContent = (parseFloat($('todayNet').textContent.replace(/,/g, '')) + Number(r.net)).toFixed(1);
   }
 
+  // today's per-count summary + last hour, refreshed after every save (also re-syncs the totals if
+  // another station or the office voided something)
+  async function refreshStats() {
+    try {
+      const r = await post({ action: 'stats' });
+      if (!r.ok) return;
+      $('summary').querySelector('tbody').innerHTML = r.items.length
+        ? r.items.map(i => `<tr><td>${esc(i.code)}</td><td>${i.n}</td><td>${i.cones}</td><td class="num fw-bold">${Number(i.net).toFixed(1)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="text-muted text-center">لسه مفيش كراتين النهارده</td></tr>';
+      $('hourN').textContent = r.hour.n;
+      $('hourNet').textContent = Number(r.hour.net).toFixed(1);
+      $('todayN').textContent = r.total.n;
+      $('todayNet').textContent = Number(r.total.net).toFixed(1);
+    } catch (e) {}
+  }
+
   $('recent').addEventListener('click', e => {
     const b = e.target.closest('.reprint');
     if (b) printLabel(b.dataset.id);
@@ -275,8 +348,26 @@
 
   // keyboard: Enter saves and prints from anywhere on the page (like the old station)
   document.addEventListener('keydown', e => {
+    const modalOpen = !!document.querySelector('.modal.show');
+    if (!modalOpen && !e.repeat) {
+      if (e.key === 'F2') { e.preventDefault(); sameWeight(); return; }
+      if (e.key === 'F4') {   // reprint the newest carton that is not voided
+        e.preventDefault();
+        const row = [...$('recent').querySelectorAll('tbody tr')].find(tr => !tr.classList.contains('text-muted'));
+        if (row) printLabel(row.querySelector('.reprint').dataset.id);
+        return;
+      }
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) {
+        e.preventDefault();
+        const c = $('conesCount');
+        c.value = Math.max(0, (parseInt(c.value || '0', 10)) + (e.key === 'ArrowUp' ? 1 : -1));
+        try { localStorage.setItem('scale.conesCount', c.value); } catch (x) {}
+        recalc();
+        return;
+      }
+    }
     if (e.key !== 'Enter' || e.repeat) return;
-    if (document.querySelector('.modal.show')) {   // Enter inside the weights dialog = save the dialog
+    if (modalOpen) {   // Enter inside the weights dialog = save the dialog
       if (e.target.id === 'ptAdminPass') { e.preventDefault(); $('ptSave').click(); }
       return;
     }
@@ -298,7 +389,7 @@
     tr.dataset.id = t.id || 0;
     tr.innerHTML = `<td><input class="form-control form-control-sm" data-k="name" value="${esc(t.name)}"></td>
       <td><select class="form-select form-select-sm" data-k="pack_item_id">${packs}</select></td>
-      <td>${num('cone_weight', t.cone_weight)}</td><td>${num('pack_weight', t.pack_weight)}</td><td>${num('bag_weight', t.bag_weight)}</td>
+      <td class="d-none">${num('cone_weight', t.cone_weight || 0)}</td><td>${num('pack_weight', t.pack_weight)}</td><td>${num('bag_weight', t.bag_weight)}</td>
       <td><input type="checkbox" class="form-check-input" data-k="active"${t.active == 0 ? '' : ' checked'}></td>`;
     return tr;
   }
@@ -316,7 +407,7 @@
     e.preventDefault();
     const tb = $('ptTable').querySelector('tbody');
     tb.innerHTML = '';
-    ptData.types.forEach(t => tb.appendChild(ptRow(t)));
+    ptData.types.filter(t => Number(t.active)).forEach(t => tb.appendChild(ptRow(t)));   // old inactive types stay in the database for history but are not edited here
     $('ptAdminPass').value = '';
     $('ptMsg').innerHTML = '';
     ptModal.show();
