@@ -35,8 +35,7 @@ require __DIR__ . '/inc/header.php';
       <td><?= $r['full'] ? '<span class="badge bg-success">مكتملة</span>' : '<span class="badge bg-warning text-dark">بتتملي</span>' ?></td>
       <td><?= (int)$r['cnt'] ?> / <?= (int)$r['capacity'] ?></td><td><?= (int)$r['in_stock'] ?></td><td><?= (int)$r['cones'] ?></td>
       <td class="num fw-bold"><?= fmt_qty($r['net'], 2) ?></td><td><?= e(substr($r['created_at'], 0, 16)) ?></td>
-      <td class="no-print"><a class="btn btn-sm btn-outline-secondary" target="_blank" href="label_pallet.php?id=<?= $r['id'] ?>">ستيكر البالتة</a>
-        <a class="btn btn-sm btn-outline-secondary" href="packages.php?q=&from=<?= e(substr($r['created_at'], 0, 10)) ?>&to=<?= e(date('Y-m-d')) ?>&item=<?= (int)$r['finished_item_id'] ?>">الكراتين</a></td>
+      <td class="no-print"><a class="btn btn-sm btn-outline-secondary" href="packages.php?q=&from=<?= e(substr($r['created_at'], 0, 10)) ?>&to=<?= e(date('Y-m-d')) ?>&item=<?= (int)$r['finished_item_id'] ?>">الكراتين</a></td>
     </tr>
   <?php endforeach; if (!$rows): ?><tr><td colspan="9" class="text-muted">مفيش بالتات لسه</td></tr><?php endif; ?>
 </table>

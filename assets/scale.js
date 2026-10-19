@@ -343,8 +343,7 @@
     return res.json();
   }
 
-  // Labels print one after another (a carton sticker, then the pallet sticker when a pallet fills up):
-  // each waits for the previous one to be handed to the printer.
+  // Labels print one after another: each waits for the previous one to be handed to the printer.
   const printQueue = [];
   let printing = false;
   function pumpPrint() {
@@ -354,7 +353,11 @@
     let finished = false;
     const done = () => { if (finished) return; finished = true; printing = false; pumpPrint(); };
     f.onload = () => {
-      try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {}
+      // printing the iframe needs it focused, which would leave the keyboard inside the hidden frame
+      // (Enter then does nothing until the page is clicked): pass its keys on and take the focus back
+      try { f.contentDocument.addEventListener('keydown', onKey); f.contentWindow.focus(); f.contentWindow.print(); } catch (e) {}
+      const back = () => { try { window.focus(); document.activeElement?.blur(); } catch (e) {} };
+      back(); setTimeout(back, 300); setTimeout(back, 1200);
       if (job.after) job.after();
       setTimeout(done, 2000);
     };
@@ -362,7 +365,6 @@
     f.src = job.url + (job.url.includes('?') ? '&' : '?') + 't=' + Date.now();
   }
   function printLabel(id) { printQueue.push({ url: 'label.php?id=' + id, after: () => post({ action: 'printed', id }) }); pumpPrint(); }
-  function printPalletLabel(id) { printQueue.push({ url: 'label_pallet.php?id=' + id }); pumpPrint(); }
 
   // ---------- pallets: every PALLET_SIZE cartons of one count share a pallet number ----------
   const PALLETS = (() => { try { return JSON.parse(station.dataset.pallets || '{}'); } catch (e) { return {}; } })();
@@ -406,12 +408,12 @@
       const pal = r.pallet;
       showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو`
         + (pal ? ` — بالتة <b dir="ltr">${pal.serial}</b> كرتونة <b>${pal.seq}/${pal.capacity}</b>` : '')
-        + (pal?.full ? '<br><b>🎉 البالتة اتملت — بيتطبع ستيكر البالتة</b>' : ''), 'success');
+        + (pal?.full ? '<br><b>🎉 البالتة اتملت (الكرتونة الأخيرة اتطبعت زي أي كرتونة)</b>' : ''), 'success');
       beep(1200, 90, 2);
       printLabel(r.id);
       if (pal) {
         const fid = $('finished').value;
-        if (pal.full) { delete PALLETS[fid]; printPalletLabel(pal.id); setTimeout(() => beep(1500, 140, 3), 700); }
+        if (pal.full) { delete PALLETS[fid]; setTimeout(() => beep(1500, 140, 3), 700); }
         else PALLETS[fid] = { id: pal.id, serial: pal.serial, count: pal.count, capacity: pal.capacity };
       }
       addRecent(r, g.value);
@@ -462,7 +464,7 @@
   });
 
   // keyboard: Enter saves and prints from anywhere on the page (like the old station)
-  document.addEventListener('keydown', e => {
+  function onKey(e) {
     const modalOpen = !!document.querySelector('.modal.show');
     if (!modalOpen && !e.repeat) {
       if (e.key === 'F2') { e.preventDefault(); sameWeight(); return; }
@@ -489,7 +491,8 @@
     e.preventDefault();
     if (!$('btnSave').disabled) $('btnSave').click();
     else beep(400, 200);   // low tone: nothing to save yet
-  });
+  }
+  document.addEventListener('keydown', onKey);
 
   // ---------- edit packing types (needs the admin password on save) ----------
   // the dialog is only rendered for admin/store; the scale operator has no way to open it

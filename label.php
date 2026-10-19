@@ -22,27 +22,27 @@ $itemName = $lot ? trim(preg_replace('/\s*' . preg_quote($lot, '/') . '\s*$/u', 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { width: <?= $w ?>mm; height: <?= $h ?>mm; font-family: Arial, Tahoma, sans-serif; color: #000; overflow: hidden; }
-.lbl { width: 100%; height: 100%; padding: 2mm 3.5mm 2mm; display: flex; flex-direction: column; align-items: center; }
-.logo { height: 34mm; max-width: 70mm; object-fit: contain; margin: 0 0 1.2mm; image-rendering: pixelated; }
+.lbl { width: 100%; height: 100%; padding: 2.5mm 12mm 3mm 4mm; display: flex; flex-direction: column; align-items: center; }
+.logo { height: 40mm; max-width: 92mm; object-fit: contain; margin: 0 0 1mm; image-rendering: pixelated; }
 .co { font-size: 21pt; font-weight: 800; letter-spacing: .3pt; direction: ltr; margin: 1mm 0 1.5mm; }
-table.t { width: 100%; border-collapse: collapse; font-size: 9pt; }
-table.t td { border: .35mm solid #000; padding: .8mm 1.2mm; text-align: center; vertical-align: middle; }
-td.en { direction: ltr; width: 26%; font-size: 8pt; white-space: nowrap; }
-td.ar { width: 24%; font-weight: 700; font-size: 8pt; white-space: nowrap; }
-td.v { font-weight: 700; font-size: 11pt; }
+table.t { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+table.t td { border: .35mm solid #000; padding: .7mm 1.5mm; text-align: center; vertical-align: middle; }
+td.en { direction: ltr; width: 26%; font-size: 8.5pt; white-space: nowrap; }
+td.ar { width: 24%; font-weight: 700; font-size: 8.5pt; white-space: nowrap; }
+td.v { font-weight: 700; font-size: 12pt; }
 td.v.ltr { direction: ltr; }
-tr.net td.v { font-size: 15pt; }
-.info { width: 100%; font-size: 8.5pt; margin-top: 1.2mm; line-height: 1.3; }
+tr.net td.v { font-size: 16pt; }
+.info { width: 100%; font-size: 9pt; margin-top: 1.2mm; line-height: 1.25; }
 .info .row { display: flex; justify-content: space-between; direction: ltr; }
 .info .row b { font-weight: 700; white-space: nowrap; padding-right: 2mm; }
 .addr { direction: rtl; text-align: right; }
-.made { font-size: 9pt; font-weight: 700; margin-top: .8mm; }
-.pal { width: 100%; margin-top: 1.4mm; border: .35mm solid #000; padding: .6mm 1.5mm; display: flex; justify-content: space-between; align-items: center; font-weight: 800; direction: ltr; }
+.made { font-size: 9.5pt; font-weight: 700; margin-top: .5mm; }
+.pal { width: 100%; margin-top: 1.2mm; border: .35mm solid #000; padding: .5mm 2mm; display: flex; justify-content: space-between; align-items: center; font-weight: 800; direction: ltr; }
 .pal .pn { font-size: 11pt; letter-spacing: .5pt; } .pal .ps { font-size: 15pt; }
 .bc { margin-top: auto; width: 100%; text-align: center; }
-.bc svg { width: 92%; height: 12mm; }
-.bc .s { display: flex; justify-content: space-between; font-size: 7.5pt; padding: 0 2mm; }
-.bc .s .n { direction: ltr; font-size: 9pt; letter-spacing: .8pt; }
+.bc svg { width: 92%; height: 13mm; }
+.bc .s { display: flex; justify-content: space-between; font-size: 8pt; padding: 0 2mm; }
+.bc .s .n { direction: ltr; font-size: 9.5pt; letter-spacing: .8pt; }
 @media screen { body { margin: 10px auto; outline: 1px dashed #999; } }
 </style></head>
 <body><div class="lbl">

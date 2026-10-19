@@ -23,7 +23,7 @@ require __DIR__ . '/inc/header.php';
 ?>
 <div class="page-head">
   <h4><i class="bi bi-receipt"></i> فواتير البيع والمرتجعات</h4>
-  <div class="d-flex gap-2"><a href="sale_new.php" class="btn btn-success"><i class="bi bi-upc-scan"></i> فاتورة بيع</a><a href="sale_new.php?type=return" class="btn btn-outline-warning"><i class="bi bi-arrow-return-right"></i> مرتجع</a></div>
+  <div class="d-flex gap-2"><a href="sale_new.php" class="btn btn-success"><i class="bi bi-upc-scan"></i> فاتورة بيع / إذن تسليم</a><a href="sale_new.php?type=return" class="btn btn-outline-warning"><i class="bi bi-arrow-return-right"></i> مرتجع</a></div>
 </div>
 <form class="card p-3 mb-3 row g-2 mx-0 no-print reveal">
   <div class="col-md-2"><label class="form-label small">من</label><input type="date" name="from" class="form-control" value="<?= e($from) ?>"></div>
@@ -44,7 +44,7 @@ require __DIR__ . '/inc/header.php';
   <thead><tr><th>النوع</th><th>رقم</th><th>التاريخ</th><th>العميل</th><th>كراتين</th><th>كيلو</th><th>الصافي</th><th>المدفوع معاها</th><th></th></tr></thead>
   <?php foreach ($rows as $r): ?>
     <tr class="<?= $r['voided'] ? 'text-decoration-line-through text-muted' : '' ?>">
-      <td><span class="badge-soft <?= $r['type'] === 'sale' ? 'ok' : 'warn' ?>"><?= SALE_TYPES[$r['type']] ?></span></td><td class="fw-bold"><?= (int)$r['number'] ?></td><td><?= e($r['inv_date']) ?></td>
+      <td><span class="badge-soft <?= $r['type'] !== 'sale' ? 'warn' : (($r['kind'] ?? 'invoice') === 'delivery' ? 'info' : 'ok') ?>"><?= e(sale_title($r)) ?></span></td><td class="fw-bold"><?= (int)$r['number'] ?></td><td><?= e($r['inv_date']) ?></td>
       <td><?= e($r['customer']) ?></td><td><?= (int)$r['cartons'] ?: '' ?></td><td class="num"><?= fmt_qty($r['kg'], 1) ?></td><td class="num fw-bold"><?= fmt_qty($r['total'], 2) ?></td>
       <td class="num"><?= $r['paid'] > 0 ? fmt_qty($r['paid'], 2) : '' ?></td>
       <td class="no-print"><a class="btn btn-sm btn-outline-primary" href="sale_view.php?id=<?= $r['id'] ?>"><i class="bi bi-eye"></i></a></td></tr>

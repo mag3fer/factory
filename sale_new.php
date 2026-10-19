@@ -21,6 +21,9 @@ require __DIR__ . '/inc/header.php';
 @keyframes rowIn { from { background: #dcfce7; transform: translateX(-12px); } to { background: transparent; transform: none; } }
 .total-big { font-size: 2rem; font-weight: 800; direction: ltr; }
 .sale-mode { border-top: 4px solid <?= $type === 'sale' ? 'var(--tl-green)' : 'var(--tl-amber)' ?>; }
+#sale.delivery .price-only { display: none !important; }
+#sale.delivery .delivery-only { display: block !important; }
+#sale.delivery .sale-mode { border-top-color: var(--tl-blue); }
 </style>
 <div id="sale" data-type="<?= $type ?>" data-csrf="<?= csrf_token() ?>">
 <div class="page-head">
@@ -36,6 +39,18 @@ require __DIR__ . '/inc/header.php';
             <?php foreach ($customers as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['name']) ?><?= $c['code'] ? ' (' . e($c['code']) . ')' : '' ?></option><?php endforeach; ?></select></div>
         <div class="col-md-3"><label class="form-label">التاريخ</label><input id="invDate" type="date" class="form-control form-control-lg" value="<?= date('Y-m-d') ?>"></div>
         <div class="col-md-3 d-flex align-items-end"><div class="w-100 small text-muted" id="custBalance"></div></div>
+      </div>
+      <?php if ($type === 'sale'): ?>
+      <div class="btn-group mt-3" role="group" aria-label="نوع المستند">
+        <input type="radio" class="btn-check" name="kind" id="kindInvoice" value="invoice" checked><label class="btn btn-outline-success" for="kindInvoice"><i class="bi bi-receipt"></i> فاتورة بيع (بسعر)</label>
+        <input type="radio" class="btn-check" name="kind" id="kindDelivery" value="delivery"><label class="btn btn-outline-primary" for="kindDelivery"><i class="bi bi-truck"></i> إذن تسليم / مذكرة إخراج (بدون سعر)</label>
+      </div>
+      <?php endif; ?>
+      <div class="row g-2 mt-1">
+        <div class="col-md-3"><label class="form-label">الجهة المستلمة</label><input id="receiver" class="form-control" maxlength="150" placeholder="مثال: مصنع الكوثر - العاشر"></div>
+        <div class="col-md-3"><label class="form-label">اسم السائق</label><input id="driverName" class="form-control" maxlength="100"></div>
+        <div class="col-md-3"><label class="form-label">رقم السيارة</label><input id="carNo" class="form-control" maxlength="50"></div>
+        <div class="col-md-3"><label class="form-label">المنظم</label><input id="organizer" class="form-control" maxlength="100" placeholder="اختياري - لو فاضي بيتسيب فاضي"></div>
       </div>
     </div>
     <div class="card p-3 mb-3 reveal">
@@ -54,11 +69,12 @@ require __DIR__ . '/inc/header.php';
     </div>
     <div class="card p-3 reveal">
       <div class="card-title-row"><h6>أصناف من غير باركود (عوادم، كونات، ...)</h6><button class="btn btn-sm btn-outline-secondary" id="addManual"><i class="bi bi-plus"></i> صنف</button></div>
-      <table class="table table-sm" id="manualTable"><thead><tr><th style="width:50%">الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th><th></th></tr></thead><tbody></tbody></table>
+      <table class="table table-sm" id="manualTable"><thead><tr><th style="width:50%">الصنف</th><th>الكمية</th><th class="price-only">السعر</th><th class="price-only">الإجمالي</th><th></th></tr></thead><tbody></tbody></table>
     </div>
   </div>
   <div class="col-xl-4">
     <div class="card p-3 reveal" style="position:sticky;top:80px">
+      <div class="price-only">
       <h6 class="fw-bold">الأسعار حسب النمرة</h6>
       <table class="table table-sm" id="priceTable"><thead><tr><th>النمرة</th><th>كيلو</th><th style="width:34%">سعر الكيلو</th><th>الإجمالي</th></tr></thead><tbody></tbody></table>
       <hr>
@@ -67,6 +83,8 @@ require __DIR__ . '/inc/header.php';
       <div class="text-center my-2"><div class="text-muted small">الصافي</div><div class="total-big text-<?= $type === 'sale' ? 'success' : 'warning' ?>" id="total">0.00</div></div>
       <div class="input-group input-group-sm mb-2"><span class="input-group-text"><?= $type === 'sale' ? 'مدفوع دلوقتي' : 'اترجع للعميل' ?></span><input id="paid" type="number" step="0.01" min="0" class="form-control num" value="0">
         <select id="payMethod" class="form-select" style="max-width:110px"><?php foreach (PAY_METHODS as $k => $l): ?><option value="<?= $k ?>"><?= $l ?></option><?php endforeach; ?></select></div>
+      </div>
+      <div class="delivery-only text-center my-2 d-none"><div class="text-muted small">إجمالي الوزن</div><div class="total-big text-primary"><span id="kgBig">0.000</span> <small class="fs-6">كيلو</small></div></div>
       <input id="notes" class="form-control form-control-sm mb-3" placeholder="ملاحظات">
       <button class="btn btn-<?= $type === 'sale' ? 'success' : 'warning' ?> btn-lg w-100" id="btnSave" disabled><i class="bi bi-check2-circle"></i> حفظ <?= $type === 'sale' ? 'الفاتورة' : 'المرتجع' ?></button>
       <div id="saveMsg" class="mt-2"></div>
@@ -77,7 +95,7 @@ require __DIR__ . '/inc/header.php';
 <template id="manualTpl"><tr>
   <td><select class="form-select form-select-sm m-item"><option value="">— اختر —</option><?php foreach ($manualItems as $i): ?><option value="<?= $i['id'] ?>"><?= e($i['code'] . ' — ' . $i['name']) ?> (<?= UNITS[$i['unit']] ?>)</option><?php endforeach; ?></select></td>
   <td><input type="number" step="0.001" min="0" class="form-control form-control-sm num m-qty"></td>
-  <td><input type="number" step="0.01" min="0" class="form-control form-control-sm num m-price"></td>
-  <td class="num m-amount">0.00</td><td><button class="btn btn-sm btn-outline-danger m-del"><i class="bi bi-x"></i></button></td>
+  <td class="price-only"><input type="number" step="0.01" min="0" class="form-control form-control-sm num m-price"></td>
+  <td class="num m-amount price-only">0.00</td><td><button class="btn btn-sm btn-outline-danger m-del"><i class="bi bi-x"></i></button></td>
 </tr></template>
 <?php require __DIR__ . '/inc/footer.php';
