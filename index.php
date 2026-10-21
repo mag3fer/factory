@@ -8,7 +8,8 @@ $today = date('Y-m-d');
 $monthStart = date('Y-m-01');
 $prod = q("SELECT COUNT(*) n, COALESCE(SUM(net),0) net FROM packages WHERE status<>'void' AND DATE(created_at)=?", [$today])->fetch();
 $totals = q("SELECT i.type, COALESCE(SUM(m.qty),0) qty FROM items i LEFT JOIN stock_moves m ON m.item_id=i.id GROUP BY i.type")->fetchAll(PDO::FETCH_KEY_PAIR);
-$inStock = q("SELECT COUNT(*) n, COALESCE(SUM(net),0) kg FROM packages WHERE status='in_stock'")->fetch();
+$inStock = q("SELECT COUNT(*) n, COALESCE(SUM(p.net),0) kg, COALESCE(SUM(pi.name LIKE '%شكار%'),0) sacks
+              FROM packages p LEFT JOIN items pi ON pi.id=p.pack_item_id WHERE p.status='in_stock'")->fetch();
 $salesMonth = q("SELECT COALESCE(SUM(CASE WHEN type='sale' THEN total ELSE -total END),0) amt,
                         COALESCE(SUM(CASE WHEN type='sale' THEN 1 ELSE 0 END),0) n FROM sales_invoices WHERE voided=0 AND inv_date>=?", [$monthStart])->fetch();
 $receiptsMonth = (float)q("SELECT COALESCE(SUM(amount),0) FROM payments WHERE voided=0 AND type='receipt' AND pay_date>=?", [$monthStart])->fetchColumn();
@@ -29,6 +30,8 @@ $low = q("SELECT i.code, i.name, COALESCE(SUM(m.qty),0) qty FROM items i LEFT JO
 $rawRows = q("SELECT i.code, i.name, i.spec, i.active,
                 COALESCE(SUM(CASE WHEN m.source='doc' AND d.type IN ('receipt','opening') AND m.qty>0 THEN m.qty END),0) inq,
                 COALESCE(-SUM(CASE WHEN m.source='package' THEN m.qty END),0) prod,
+                (SELECT COALESCE(SUM(p.net),0) FROM packages p WHERE p.raw_item_id=i.id AND p.status='sold') made_sold,       -- finished yarn made from this raw that was sold
+                (SELECT COALESCE(SUM(p.net),0) FROM packages p WHERE p.raw_item_id=i.id AND p.status='in_stock') made_stock,  -- ... and is still in the warehouse
                 COALESCE(-SUM(CASE WHEN m.source='sale' OR (m.source='doc' AND d.type IN ('issue','receipt','opening') AND m.qty<0) THEN m.qty END),0) outq,
                 COALESCE(SUM(CASE WHEN m.source='doc' AND d.type='adjust' THEN m.qty END),0) adj,   -- adjustments / transfers between items, kept apart from received and sold
                 COALESCE(SUM(m.qty),0) bal
@@ -44,7 +47,7 @@ require __DIR__ . '/inc/header.php';
   <div class="col-sm-6 col-xl-3 reveal"><div class="card kpi card-hover"><div class="ic g-cyan"><i class="bi bi-speedometer"></i></div>
     <div><div class="lbl">إنتاج النهارده</div><div class="value num"><span data-count="<?= round($prod['net'], 1) ?>" data-dec="1">0</span> <small class="fs-6 text-muted">كيلو</small></div><div class="sub"><?= (int)$prod['n'] ?> كرتونة / شكارة</div></div></div></div>
   <div class="col-sm-6 col-xl-3 reveal"><div class="card kpi card-hover"><div class="ic g-blue"><i class="bi bi-box-seam"></i></div>
-    <div><div class="lbl">خيط تام في المخزن</div><div class="value num"><span data-count="<?= round($totals['finished'] ?? 0, 1) ?>" data-dec="1">0</span> <small class="fs-6 text-muted">كيلو</small></div><div class="sub"><?= (int)$inStock['n'] ?> كرتونة بالباركود</div></div></div></div>
+    <div><div class="lbl">خيط تام في المخزن</div><div class="value num"><span data-count="<?= round($totals['finished'] ?? 0, 1) ?>" data-dec="1">0</span> <small class="fs-6 text-muted">كيلو</small></div><div class="sub"><?= (int)$inStock['n'] - (int)$inStock['sacks'] ?> كرتونة<?= $inStock['sacks'] ? ' + ' . (int)$inStock['sacks'] . ' شكارة' : '' ?> بالباركود</div></div></div></div>
   <div class="col-sm-6 col-xl-3 reveal"><div class="card kpi card-hover"><div class="ic g-green"><i class="bi bi-graph-up-arrow"></i></div>
     <div><div class="lbl">مبيعات الشهر</div><div class="value num"><span data-count="<?= round($salesMonth['amt'], 0) ?>">0</span></div><div class="sub"><?= (int)$salesMonth['n'] ?> فاتورة — تحصيل <?= fmt_qty($receiptsMonth, 0) ?></div></div></div></div>
   <div class="col-sm-6 col-xl-3 reveal"><div class="card kpi card-hover"><div class="ic g-red"><i class="bi bi-wallet2"></i></div>
@@ -65,16 +68,18 @@ require __DIR__ . '/inc/header.php';
   </div></div>
 </div>
 <div class="card table-wrap mb-3 reveal"><div class="p-3 pb-0 card-title-row"><h6><i class="bi bi-layers"></i> الخام — لكل بوي (كيلو)</h6></div>
-  <table class="table table-sm align-middle mb-0"><thead><tr><th>البوي</th><th>بيطلع نمرة</th><th>الوارد</th><th>اتسحب للإنتاج</th><th>اتباع / اتصرف</th><th title="تسوية أو نقل بين الأصناف (بتتحسب لوحدها عشان ما تتعدّش وارد أو مبيعات)">تسوية / نقل</th><th>المتبقي</th><th style="width:16%"></th></tr></thead>
-  <?php $sum = ['inq' => 0, 'prod' => 0, 'outq' => 0, 'adj' => 0, 'bal' => 0];
+  <table class="table table-sm align-middle mb-0"><thead><tr><th>البوي</th><th>بيطلع نمرة</th><th>الوارد</th><th>اتسحب للإنتاج</th><th title="من الخيط التام اللي اتعمل من البوي ده، اللي اتباع للعملاء">منه اتباع (خيط تام)</th><th title="من الخيط التام اللي اتعمل من البوي ده، اللي لسه في المخزن">منه في المخزن (خيط تام)</th><th title="خام اتباع أو اتصرف كخام زي ما هو (مش خيط تام)">خام اتباع / اتصرف</th><th title="تسوية أو نقل بين الأصناف (بتتحسب لوحدها عشان ما تتعدّش وارد أو مبيعات)">تسوية / نقل</th><th>المتبقي</th><th style="width:16%"></th></tr></thead>
+  <?php $sum = ['inq' => 0, 'prod' => 0, 'made_sold' => 0, 'made_stock' => 0, 'outq' => 0, 'adj' => 0, 'bal' => 0];
   foreach ($rawRows as $r): foreach ($sum as $k => $_) $sum[$k] += (float)$r[$k]; $base = (float)$r['inq'] + max(0, (float)$r['adj']); $pct = $base > 0 ? max(0, min(100, 100 * (float)$r['bal'] / $base)) : 0; ?>
     <tr><td><b><?= e($r['code']) ?></b> <span class="small text-muted"><?= e($r['name']) ?></span></td><td><?= e($r['spec']) ?></td>
-      <td class="num"><?= fmt_qty($r['inq'], 1) ?></td><td class="num"><?= fmt_qty($r['prod'], 1) ?></td><td class="num"><?= fmt_qty($r['outq'], 1) ?></td>
+      <td class="num"><?= fmt_qty($r['inq'], 1) ?></td><td class="num"><?= fmt_qty($r['prod'], 1) ?></td>
+      <td class="num <?= $r['made_sold'] > 0 ? 'text-success fw-bold' : '' ?>"><?= fmt_qty($r['made_sold'], 1) ?></td><td class="num"><?= fmt_qty($r['made_stock'], 1) ?></td>
+      <td class="num"><?= fmt_qty($r['outq'], 1) ?></td>
       <td class="num <?= $r['adj'] < 0 ? 'neg' : '' ?>"><?= abs((float)$r['adj']) > 0.0005 ? ($r['adj'] > 0 ? '+' : '−') . fmt_qty(abs($r['adj']), 1) : '' ?></td>
       <td class="num fw-bold <?= $r['bal'] < 0 ? 'neg' : '' ?>"><?= fmt_qty($r['bal'], 1) ?></td>
       <td><div class="progress" style="height:8px" title="فاضل <?= round($pct) ?>% من الوارد"><div class="progress-bar <?= $pct < 15 ? 'bg-danger' : ($pct < 35 ? 'bg-warning' : 'bg-success') ?>" style="width:<?= $pct ?>%"></div></div></td></tr>
-  <?php endforeach; if (!$rawRows): ?><tr><td colspan="8" class="text-muted text-center py-3">مفيش خام متسجل</td></tr><?php else: ?>
-    <tfoot><tr class="fw-bold"><td colspan="2">الإجمالي</td><td class="num"><?= fmt_qty($sum['inq'], 1) ?></td><td class="num"><?= fmt_qty($sum['prod'], 1) ?></td><td class="num"><?= fmt_qty($sum['outq'], 1) ?></td><td class="num"><?= abs($sum['adj']) > 0.0005 ? fmt_qty($sum['adj'], 1) : '' ?></td><td class="num"><?= fmt_qty($sum['bal'], 1) ?></td><td></td></tr></tfoot>
+  <?php endforeach; if (!$rawRows): ?><tr><td colspan="10" class="text-muted text-center py-3">مفيش خام متسجل</td></tr><?php else: ?>
+    <tfoot><tr class="fw-bold"><td colspan="2">الإجمالي</td><td class="num"><?= fmt_qty($sum['inq'], 1) ?></td><td class="num"><?= fmt_qty($sum['prod'], 1) ?></td><td class="num"><?= fmt_qty($sum['made_sold'], 1) ?></td><td class="num"><?= fmt_qty($sum['made_stock'], 1) ?></td><td class="num"><?= fmt_qty($sum['outq'], 1) ?></td><td class="num"><?= abs($sum['adj']) > 0.0005 ? fmt_qty($sum['adj'], 1) : '' ?></td><td class="num"><?= fmt_qty($sum['bal'], 1) ?></td><td></td></tr></tfoot>
   <?php endif; ?></table>
 </div>
 <div class="row g-3">

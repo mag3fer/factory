@@ -7,6 +7,7 @@ $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_GET['to'] ?? '') ? $_GET['to'] : dat
 $itemId = (int)($_GET['item'] ?? 0);
 $status = in_array($_GET['status'] ?? '', ['in_stock', 'sold', 'void'], true) ? $_GET['status'] : '';
 $search = trim($_GET['q'] ?? '');
+$pk = in_array($_GET['pk'] ?? '', ['carton', 'sack'], true) ? $_GET['pk'] : '';   // كرتونة / شكارة
 
 $where = []; $params = [];
 if ($search !== '') { $where[] = 'p.serial = ?'; $params[] = $search; }
@@ -14,9 +15,11 @@ else {
     $where[] = 'p.created_at >= ? AND p.created_at < DATE_ADD(?, INTERVAL 1 DAY)'; array_push($params, $from, $to);
     if ($itemId) { $where[] = 'p.finished_item_id=?'; $params[] = $itemId; }
     if ($status) { $where[] = 'p.status=?'; $params[] = $status; }
+    if ($pk === 'sack') $where[] = "pi.name LIKE '%شكار%'";
+    if ($pk === 'carton') $where[] = "(pi.name IS NULL OR pi.name NOT LIKE '%شكار%')";
 }
-$rows = q('SELECT p.*, i.code, i.name, us.full_name usr, c.name cone, pl.serial pallet_serial FROM packages p JOIN items i ON i.id=p.finished_item_id JOIN users us ON us.id=p.user_id
-           LEFT JOIN items c ON c.id=p.cone_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id WHERE ' . implode(' AND ', $where) . ' ORDER BY p.id DESC LIMIT 1000', $params)->fetchAll();
+$rows = q('SELECT p.*, i.code, i.name, us.full_name usr, c.name cone, pl.serial pallet_serial, (pi.name LIKE \'%شكار%\') is_sack FROM packages p JOIN items i ON i.id=p.finished_item_id JOIN users us ON us.id=p.user_id
+           LEFT JOIN items c ON c.id=p.cone_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id LEFT JOIN items pi ON pi.id=p.pack_item_id WHERE ' . implode(' AND ', $where) . ' ORDER BY p.id DESC LIMIT 1000', $params)->fetchAll();
 $finished = items_by_type('finished');
 $canVoid = in_array($u['role'], ['admin', 'store'], true);
 const PKG_STATUS = ['in_stock' => 'في المخزن', 'sold' => 'مباع', 'void' => 'ملغي'];
@@ -32,6 +35,8 @@ require __DIR__ . '/inc/header.php';
     <?php foreach ($finished as $f): ?><option value="<?= $f['id'] ?>"<?= $itemId === (int)$f['id'] ? ' selected' : '' ?>><?= e($f['code'] . ' — ' . $f['name']) ?></option><?php endforeach; ?></select></div>
   <div class="col-auto"><select name="status" class="form-select"><option value="">كل الحالات</option>
     <?php foreach (PKG_STATUS as $k => $l): ?><option value="<?= $k ?>"<?= $status === $k ? ' selected' : '' ?>><?= $l ?></option><?php endforeach; ?></select></div>
+  <div class="col-auto"><select name="pk" class="form-select"><option value="">كرتونة وشكارة</option>
+    <option value="carton"<?= $pk === 'carton' ? ' selected' : '' ?>>كراتين بس</option><option value="sack"<?= $pk === 'sack' ? ' selected' : '' ?>>شكاير بس</option></select></div>
   <div class="col-auto"><input name="q" class="form-control num" placeholder="امسح الباركود" value="<?= e($search) ?>"></div>
   <div class="col-auto"><button class="btn btn-primary">عرض</button> <button type="button" onclick="print()" class="btn btn-outline-secondary">طباعة</button></div>
 </form>
@@ -73,17 +78,17 @@ $rowLvl = function (array $r) use ($perCone, $okPct, $warnPct): string {
 <?php endif; ?>
 <div class="card p-0">
 <table class="table table-sm table-hover mb-0" id="pk" data-csrf="<?= csrf_token() ?>">
-  <thead class="table-light"><tr><th>الباركود</th><th>بالتة</th><th>الكود</th><th>النمرة</th><th>الكونة</th><th>عدد</th><th>قائم</th><th>فوارغ</th><th>صافي</th><th>الوزن</th><th>الوقت</th><th>بواسطة</th><th>الحالة</th><th class="no-print"></th></tr></thead>
+  <thead class="table-light"><tr><th>الباركود</th><th>بالتة</th><th>الكود</th><th>النمرة</th><th>التعبئة</th><th>الكونة</th><th>عدد</th><th>قائم</th><th>فوارغ</th><th>صافي</th><th>الوزن</th><th>الوقت</th><th>بواسطة</th><th>الحالة</th><th class="no-print"></th></tr></thead>
   <?php foreach ($rows as $r): ?>
     <tr class="<?= $r['status'] === 'void' ? 'text-decoration-line-through text-muted' : '' ?>">
-      <td class="num"><?= e($r['serial']) ?></td><td class="num small"><?= $r['pallet_serial'] ? e($r['pallet_serial']) . ' · ' . (int)$r['pallet_seq'] : '—' ?></td><td><?= e($r['code']) ?></td><td><?= e($r['name']) ?></td><td><?= e($r['cone']) ?></td><td><?= (int)$r['cones_count'] ?></td>
+      <td class="num"><?= e($r['serial']) ?></td><td class="num small"><?= $r['pallet_serial'] ? e($r['pallet_serial']) . ' · ' . (int)$r['pallet_seq'] : '—' ?></td><td><?= e($r['code']) ?></td><td><?= e($r['name']) ?></td><td class="text-nowrap"><?= $r['is_sack'] ? '<span class="badge bg-success">شكارة</span>' : '<span class="badge bg-light text-dark border">كرتونة</span>' ?><?= $r['is_mixed'] ? ' <span class="badge bg-warning text-dark">متعدد</span>' : '' ?></td><td><?= e($r['cone']) ?></td><td><?= (int)$r['cones_count'] ?></td>
       <td class="num"><?php if ($l = $rowLvl($r)): ?><i class="dev-dot <?= $l ?>" title="الفرق عن المثالي: <?= number_format($r['gross'] - $r['cones_count'] * $perCone, 2) ?> كيلو"></i> <?php endif; ?><?= fmt_qty($r['gross']) ?></td><td class="num"><?= fmt_qty($r['tare']) ?></td><td class="num fw-bold"><?= fmt_qty($r['net']) ?></td>
       <td><?= $r['weight_source'] === 'scale' ? 'ميزان' : 'يدوي' ?></td><td><?= e(substr($r['created_at'], 0, 16)) ?></td><td><?= e($r['usr']) ?></td>
       <td><?= PKG_STATUS[$r['status']] ?><?= $r['void_reason'] ? ' — ' . e($r['void_reason']) : '' ?></td>
       <td class="no-print text-nowrap"><a class="btn btn-sm btn-outline-secondary" target="_blank" href="label.php?id=<?= $r['id'] ?>">الستيكر</a>
         <?php if ($canVoid && $r['status'] === 'in_stock'): ?><button class="btn btn-sm btn-outline-danger void" data-id="<?= $r['id'] ?>" data-serial="<?= e($r['serial']) ?>">إلغاء</button><?php endif; ?></td>
     </tr>
-  <?php endforeach; if (!$rows): ?><tr><td colspan="14" class="text-muted">مفيش</td></tr><?php endif; ?>
+  <?php endforeach; if (!$rows): ?><tr><td colspan="15" class="text-muted">مفيش</td></tr><?php endif; ?>
 </table>
 </div>
 <script>

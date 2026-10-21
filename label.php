@@ -62,7 +62,7 @@ tr.net td.v { font-size: 16pt; }
     <?php if (setting('company_address')): ?><div class="row"><b>Address :</b><span class="addr"><?= e(setting('company_address')) ?></span></div><?php endif; ?>
   </div>
   <div class="made">Made in Egypt - صنع في مصر</div>
-  <?php if ($p['pallet_serial']): ?><div class="pal"><span class="pn">PALLET <?= e($p['pallet_serial']) ?></span><span class="ps"><?= (int)$p['pallet_seq'] ?> / <?= (int)$p['pallet_cap'] ?></span></div><?php endif; ?>
+  <?php if ($p['pallet_serial']): ?><div class="pal"><span class="pn">PALLET <?= e($p['pallet_serial']) ?><?= $p['is_mixed'] ? ' · <span style="font-family:Tahoma,Arial,sans-serif">متعدد</span>' : '' ?></span><span class="ps"><?= (int)$p['pallet_seq'] ?> / <?= (int)$p['pallet_cap'] ?></span></div><?php endif; ?>
   <div class="bc"><svg id="bc"></svg>
     <div class="s"><span><?= e(date('d/m/Y H:i', strtotime($p['created_at']))) ?></span><span class="n"><?= e($p['serial']) ?></span><span><?= e($p['fcode']) ?></span></div>
   </div>

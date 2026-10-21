@@ -15,6 +15,12 @@
   let usedValue = null;      // weight of the last saved carton
   let port = null, reader = null, keepReading = false;
   let awaitingNew = false;   // a carton was just saved: the save button stays red until a new weight is registered
+  // production type: 0 = نظامي (fixed cone count), 1 = متعدد (cones change from carton to carton)
+  let mixed = 0;
+  try { mixed = localStorage.getItem('scale.mode') === '1' ? 1 : 0; } catch (e) {}
+  // "item:mode" -> the operator chose to start a new pallet (applies to the next save); kept across F5
+  const pendingNew = (() => { try { return JSON.parse(localStorage.getItem('scale.pendingNew') || '{}'); } catch (e) { return {}; } })();
+  const persistPending = () => { try { localStorage.setItem('scale.pendingNew', JSON.stringify(pendingNew)); } catch (e) {} };
 
   // ---------- remember selections between cartons ----------
   const KEEP = ['finished', 'raw', 'packing', 'cone', 'conesCount'];
@@ -110,7 +116,7 @@
   let ackCones = null;      // the non-standard count the operator already confirmed
   let lastConesBeep = null;
   function conesCheck() {
-    const n = parseInt($('conesCount').value || '0', 10), off = n !== STD_CONES;
+    const n = parseInt($('conesCount').value || '0', 10), off = !mixed && n !== STD_CONES;   // no cone alert in متعدد
     $('conesWarn').innerHTML = off
       ? `<div class="alert alert-warning py-2 mb-0 d-flex justify-content-between align-items-center cones-alert"><span>⚠ عدد الكونات <b>${n}</b> — الطبيعي <b>${STD_CONES}</b></span><button type="button" class="btn btn-sm btn-dark" id="btnStdCones">رجّع ${STD_CONES}</button></div>`
       : '';
@@ -137,9 +143,11 @@
     showTarget(g);
     currentWarn = sanity(g, net);
     $('warn').innerHTML = currentWarn ? `<div class="alert alert-warning py-2 mb-0">⚠ ${currentWarn}</div>` : '';
-    $('btnSave').disabled = !(g && net > 0 && $('finished').value && $('packing').value && !coneMissing);
+    const noCones = mixed && !(parseInt($('conesCount').value || '0', 10) > 0);
+    $('btnSave').disabled = !(g && net > 0 && $('finished').value && $('packing').value && !coneMissing && !noCones);
     $('btnSave').textContent = !$('finished').value ? 'اختر النمرة الأول'
       : !$('packing').value ? 'اختر كرتون أو شكارة'
+      : noCones ? 'اكتب عدد الكونات'
       : coneMissing ? 'اختر لون الكونة'
       : (awaitingNew ? 'تم الحفظ — استنى وزن جديد…' : 'حفظ وطباعة الستيكر');
     $('btnSave').classList.toggle('waiting', awaitingNew && !g);
@@ -369,15 +377,65 @@
   // ---------- pallets: every PALLET_SIZE cartons of one count share a pallet number ----------
   const PALLETS = (() => { try { return JSON.parse(station.dataset.pallets || '{}'); } catch (e) { return {}; } })();
   const PALLET_SIZE = parseInt(station.dataset.palletSize || '20', 10);
+  const modeName = () => mixed ? 'متعدد' : 'نظامي';
+  // pallets are per count + type (نظامي/متعدد) + packing (كرتونة 20 / شكارة 15)
+  const palKey = () => $('finished').value + ':' + mixed + ':' + ($('packing').value || 0);
+  const palletSizeNow = () => parseInt($('packing').selectedOptions[0]?.dataset.pallet || PALLET_SIZE, 10) || PALLET_SIZE;
+  const packName = () => $('packing').selectedOptions[0]?.textContent.trim() || '';
   function showPallet() {
     const box = $('palletInfo'), fid = $('finished').value;
     if (!fid) { box.classList.add('d-none'); return; }
-    const p = PALLETS[fid];
+    const k = palKey(), p = pendingNew[k] ? null : PALLETS[k];
     box.classList.remove('d-none');
+    box.classList.toggle('mixed', !!mixed);
+    const tag = `<span class="badge ${mixed ? 'bg-warning text-dark' : 'bg-primary'} me-1">${modeName()}</span>` + (packName() ? `<span class="badge bg-secondary me-1">${esc(packName())}</span>` : '');
     box.innerHTML = p
-      ? `<i class="bi bi-boxes"></i> بالتة <b dir="ltr">${esc(p.serial)}</b> — فيها <b>${p.count}</b> من ${p.capacity} — الكرتونة الجاية <b>${p.count + 1}</b>`
-      : `<i class="bi bi-boxes"></i> هتبدأ بالتة جديدة — الكرتونة الجاية <b>1</b> من ${PALLET_SIZE}`;
+      ? `<i class="bi bi-boxes"></i> ${tag}بالتة <b dir="ltr">${esc(p.serial)}</b> — فيها <b>${p.count}</b> من ${p.capacity} — الكرتونة الجاية <b>${p.count + 1}</b>`
+      : `<i class="bi bi-boxes"></i> ${tag}هتبدأ بالتة ${modeName()} جديدة — الكرتونة الجاية <b>1</b> من ${palletSizeNow()}`;
   }
+
+  // ---------- نظامي / متعدد ----------
+  function applyMode() {
+    document.querySelectorAll('#modeSwitch button').forEach(b => b.classList.toggle('active', (b.dataset.mode === '1') === !!mixed));
+    station.classList.toggle('mode-mixed', !!mixed);
+    const c = $('conesCount');
+    c.readOnly = !mixed;                       // نظامي: the cone count is fixed, no arrows and no alerts
+    if (!mixed) c.value = STD_CONES;
+    recalc();
+  }
+  document.querySelectorAll('#modeSwitch button').forEach(b => b.addEventListener('click', () => {
+    const m = b.dataset.mode === '1' ? 1 : 0;
+    if (m === mixed) return;
+    mixed = m;
+    try { localStorage.setItem('scale.mode', String(m)); } catch (e) {}
+    applyMode();
+    askResume();
+  }));
+
+  // An unfinished pallet of this count and type that is still in the warehouse: ask whether to continue it.
+  // The answer is remembered for the rest of the day (pallet id -> date), so F5 or restarting Chrome does
+  // not ask again; the next morning it asks once more.
+  const todayStr = () => new Date().toLocaleDateString('en-CA');
+  const decided = (() => { try { return JSON.parse(localStorage.getItem('scale.decided') || '{}'); } catch (e) { return {}; } })();
+  const saveDecided = () => { try { localStorage.setItem('scale.decided', JSON.stringify(decided)); } catch (e) {} };
+  let pcModal = null, pcCtx = null;
+  function askResume() {
+    const fid = $('finished').value, box = $('palletChoiceModal');
+    if (!fid || !box || box.classList.contains('show')) return;
+    const k = palKey(), p = PALLETS[k];
+    if (!p || p.count < 1 || p.in_stock < 1 || pendingNew[k] || decided[p.id] === todayStr()) return;
+    pcModal = pcModal || new bootstrap.Modal(box);
+    const fin = $('finished').selectedOptions[0].textContent.split(' — ')[0];
+    $('pcBody').innerHTML = `نمرة <b>${esc(fin)}</b> — <b>${modeName()}</b> — <b>${esc(packName())}</b><br>البالتة <b dir="ltr">${esc(p.serial)}</b> وصلت <b>${p.count}</b> من ${p.capacity}، وفيها <b>${p.in_stock}</b> كرتونة لسه في المخزن.<br>تكمّلها ولا تبدأ بالتة جديدة؟`;
+    pcCtx = { k, id: p.id };
+    pcModal.show();
+  }
+  if ($('pcContinue')) {
+    $('pcContinue').addEventListener('click', () => { decided[pcCtx.id] = todayStr(); saveDecided(); pcModal.hide(); recalc(); });
+    $('pcNew').addEventListener('click', () => { pendingNew[pcCtx.k] = true; persistPending(); decided[pcCtx.id] = todayStr(); saveDecided(); pcModal.hide(); recalc(); });
+  }
+  $('finished').addEventListener('change', askResume);
+  $('packing').addEventListener('change', askResume);     // كرتونة ← → شكارة: each has its own pallets
 
   function showMsg(html, cls) { $('msg').innerHTML = `<div class="alert alert-${cls} py-2 mb-0">${html}</div>`; }
 
@@ -387,7 +445,7 @@
     const g = currentGross();
     if (!g) return;
     const nCones = parseInt($('conesCount').value || '0', 10);
-    if (nCones !== STD_CONES && ackCones !== nCones) {
+    if (!mixed && nCones !== STD_CONES && ackCones !== nCones) {
       beep(400, 200);
       if (!confirm(`عدد الكونات ${nCones} مش ${STD_CONES} (الطبيعي). متأكد؟`)) return;
       ackCones = nCones;
@@ -403,18 +461,21 @@
         action: 'save', finished_item_id: $('finished').value, raw_item_id: $('raw').value,
         cone_item_id: $('cone').value, cones_count: $('conesCount').value, packing_type_id: $('packing').value,
         gross: g.value.toFixed(3), weight_source: g.source,
+        mixed: mixed ? 1 : 0, new_pallet: pendingNew[palKey()] ? 1 : 0,
       });
       if (!r.ok) { showMsg(r.error, 'danger'); return; }
       const pal = r.pallet;
-      showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو`
-        + (pal ? ` — بالتة <b dir="ltr">${pal.serial}</b> كرتونة <b>${pal.seq}/${pal.capacity}</b>` : '')
+      showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو${mixed ? ' <span class="badge bg-warning text-dark">متعدد</span>' : ''}`
+        + (pal ? `<div class="saved-no">كرتونة رقم <b>${pal.seq}</b> من ${pal.capacity} <small dir="ltr">— بالتة ${pal.serial}</small></div>` : '')
         + (pal?.full ? '<br><b>🎉 البالتة اتملت (الكرتونة الأخيرة اتطبعت زي أي كرتونة)</b>' : ''), 'success');
       beep(1200, 90, 2);
       printLabel(r.id);
       if (pal) {
-        const fid = $('finished').value;
-        if (pal.full) { delete PALLETS[fid]; setTimeout(() => beep(1500, 140, 3), 700); }
-        else PALLETS[fid] = { id: pal.id, serial: pal.serial, count: pal.count, capacity: pal.capacity };
+        const k = palKey();
+        delete pendingNew[k]; persistPending();
+        decided[pal.id] = todayStr(); saveDecided();     // this pallet is the one in use now: don't ask again today
+        if (pal.full) { delete PALLETS[k]; setTimeout(() => beep(1500, 140, 3), 700); }
+        else PALLETS[k] = { id: pal.id, serial: pal.serial, count: pal.count, in_stock: pal.count, capacity: pal.capacity, mixed: mixed };
       }
       addRecent(r, g.value);
       refreshStats();
@@ -434,7 +495,8 @@
     const fin = $('finished').selectedOptions[0].textContent.split(' — ')[0];
     const tr = document.createElement('tr');
     const t = new Date();
-    tr.innerHTML = `<td class="num">${r.serial}</td><td>${fin}</td><td>${$('conesCount').value}</td><td class="num">${gross.toFixed(2)}</td>
+    const pal = r.pallet ? `<span class="pal-no">${r.pallet.seq}/${r.pallet.capacity}</span> <span class="small text-muted">${esc(r.pallet.serial)}</span>` : '—';
+    tr.innerHTML = `<td class="num">${r.serial}</td><td class="num fw-bold text-nowrap" dir="ltr">${pal}</td><td>${fin}${mixed ? ' <span class="badge bg-warning text-dark">متعدد</span>' : ''}</td><td>${$('conesCount').value}</td><td class="num">${gross.toFixed(2)}</td>
       <td class="num fw-bold">${Number(r.net).toFixed(2)}</td><td>${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}</td>
       <td><button class="btn btn-sm btn-outline-secondary reprint" data-id="${r.id}">طباعة</button></td>`;
     $('recent').querySelector('tbody').prepend(tr);
@@ -444,10 +506,37 @@
 
   // today's per-count summary + last hour, refreshed after every save (also re-syncs the totals if
   // another station or the office voided something)
+  // ---------- warehouse total card: everything on hand (not sold) right now ----------
+  const nf = (v, d = 1) => Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  function renderWarehouse(w) {
+    const box = $('warehouse');
+    if (!box || !w) return;
+    const maxKg = Math.max(...w.items.map(i => i.kg), 1);
+    box.innerHTML = `
+      <div class="wh-head"><span><i class="bi bi-boxes"></i> إجمالي المخزن حتى الآن</span><small><i class="bi bi-broadcast"></i> يتحدّث مع كل كرتونة</small></div>
+      <div class="wh-main">
+        <div class="wh-kg" dir="ltr">${nf(w.total.kg)}<small>كيلو صافي</small></div>
+        <div class="wh-kpis">
+          <div><b>${nf(w.total.n, 0)}</b><span>كرتونة</span></div>
+          <div><b>${nf(w.total.pallets, 0)}</b><span>بالتة</span></div>
+          <div><b>${nf(w.total.cones, 0)}</b><span>كونة</span></div>
+        </div>
+      </div>
+      <div class="wh-items">${w.items.length ? w.items.map(i => `
+        <div class="wh-row">
+          <div class="wh-name"><b>${esc(i.code)}${i.mixed ? ' <em class="wh-tag">متعدد</em>' : ''}${i.sack ? ' <em class="wh-tag sack">شكاير</em>' : ''}</b><span>${esc(i.name)}</span></div>
+          <div class="wh-bar"><i style="width:${Math.max(4, Math.round(i.kg / maxKg * 100))}%"></i></div>
+          <div class="wh-num" dir="ltr">${nf(i.kg)} kg</div>
+          <div class="wh-sub">${i.n} ${i.sack ? 'شكارة' : 'كرتونة'} · ${i.pallets} بالتة${i.open ? ` · الجارية ${i.open}/${i.cap || PALLET_SIZE}` : ''}</div>
+        </div>`).join('') : '<div class="wh-empty">المخزن فاضي حالياً</div>'}</div>`;
+  }
+  try { renderWarehouse(JSON.parse($('warehouse')?.dataset.wh || 'null')); } catch (e) {}
+
   async function refreshStats() {
     try {
       const r = await post({ action: 'stats' });
       if (!r.ok) return;
+      renderWarehouse(r.warehouse);
       $('summary').querySelector('tbody').innerHTML = r.items.length
         ? r.items.map(i => `<tr><td>${esc(i.code)}</td><td>${i.n}</td><td>${i.cones}</td><td class="num fw-bold">${Number(i.net).toFixed(1)}</td></tr>`).join('')
         : '<tr><td colspan="4" class="text-muted text-center">لسه مفيش كراتين النهارده</td></tr>';
@@ -474,7 +563,7 @@
         if (row) printLabel(row.querySelector('.reprint').dataset.id);
         return;
       }
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) {
+      if (mixed && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) {   // arrows only in متعدد
         e.preventDefault();
         const c = $('conesCount');
         c.value = Math.max(0, (parseInt(c.value || '0', 10)) + (e.key === 'ArrowUp' ? 1 : -1));
@@ -509,6 +598,7 @@
     tr.innerHTML = `<td><input class="form-control form-control-sm" data-k="name" value="${esc(t.name)}"></td>
       <td><select class="form-select form-select-sm" data-k="pack_item_id">${packs}</select></td>
       <td class="d-none">${num('cone_weight', t.cone_weight || 0)}</td><td>${num('pack_weight', t.pack_weight)}</td><td>${num('bag_weight', t.bag_weight)}</td>
+      <td><input type="number" step="1" min="1" max="200" class="form-control form-control-sm num" style="width:80px" data-k="pallet_size" value="${t.pallet_size || 20}"></td>
       <td><input type="checkbox" class="form-check-input" data-k="active"${t.active == 0 ? '' : ' checked'}></td>`;
     return tr;
   }
@@ -517,7 +607,7 @@
     ptData.types = types;
     const sel = $('packing'), cur = sel.value;
     sel.innerHTML = '<option value="">— اختر —</option>' + types.filter(t => Number(t.active)).map(t =>
-      `<option value="${t.id}" data-cone="${t.cone_weight}" data-pack="${t.pack_weight}" data-bag="${t.bag_weight}">${esc(t.name)}</option>`).join('');
+      `<option value="${t.id}" data-cone="${t.cone_weight}" data-pack="${t.pack_weight}" data-bag="${t.bag_weight}" data-pallet="${t.pallet_size}">${esc(t.name)}</option>`).join('');
     sel.value = cur;
     recalc();
   }
@@ -557,5 +647,6 @@
   });
   })();
 
-  recalc();
+  applyMode();                    // also runs recalc()
+  setTimeout(askResume, 600);     // coming back to an unfinished pallet: ask whether to continue it
 })();

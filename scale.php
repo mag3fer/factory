@@ -8,11 +8,11 @@ $raws = items_by_type('raw');
 $activeRaw = array_column($raws, 'id', 'id');
 $finished = array_values(array_filter(items_by_type('finished'), fn($i) => !$i['raw_item_id'] || isset($activeRaw[$i['raw_item_id']])));
 $cones = items_by_type('cone');
-$allPackingTypes = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active FROM packing_types ORDER BY id')->fetchAll();
+$allPackingTypes = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active, pallet_size FROM packing_types ORDER BY id')->fetchAll();
 $packingTypes = array_values(array_filter($allPackingTypes, fn($t) => $t['active']));
 $packItems = q("SELECT id, code, name FROM items WHERE type='pack' AND active=1 ORDER BY code")->fetchAll();
-$recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.status, p.created_at, i.code, i.name
-             FROM packages p JOIN items i ON i.id=p.finished_item_id
+$recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.is_mixed, p.status, p.created_at, p.pallet_seq, pl.serial pallet_serial, pl.capacity pallet_cap, i.code, i.name
+             FROM packages p JOIN items i ON i.id=p.finished_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id
              WHERE DATE(p.created_at)=CURDATE() ORDER BY p.id DESC LIMIT 15")->fetchAll();
 require __DIR__ . '/inc/scale_stats.php';
 $stats = scale_stats();
@@ -77,18 +77,23 @@ require __DIR__ . '/inc/header.php';
   </div>
   <div class="col-xl-7">
     <div class="card p-3 mb-3">
+      <div class="mode-switch mb-3" id="modeSwitch" role="group" aria-label="نوع الإنتاج">
+        <button type="button" data-mode="0" class="active"><b>نظامي</b><small><?= (int)setting('default_cones', '6') ?> كونات ثابتة</small></button>
+        <button type="button" data-mode="1"><b>متعدد</b><small>عدد الكونات بيتغيّر</small></button>
+      </div>
       <div class="row g-2">
         <div class="col-md-8"><label class="form-label">النمرة (الخيط التام)</label><select id="finished" class="form-select form-select-lg"><option value="">— اختر —</option><?php foreach ($finished as $i): ?><option value="<?= $i['id'] ?>" data-raw="<?= (int)$i['raw_item_id'] ?>" data-spec="<?= e(spec_key($i['spec'])) ?>"><?= e($i['code'] . ' — ' . $i['name']) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-4"><label class="form-label">البوي (الخام اللي على المكنة)</label><select id="raw" class="form-select"><option value="">كل الخامات</option><?php foreach ($raws as $i): ?><option value="<?= $i['id'] ?>" data-spec="<?= e(spec_key($i['spec'])) ?>"><?= e($i['code'] . ' — ' . $i['name'] . ($i['spec'] ? ' ← ' . $i['spec'] : '')) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-5"><label class="form-label d-flex justify-content-between">نوع التعبئة
             <?php if ($canEditPacking): ?><a href="#" id="btnEditPacking" class="small">تعديل الأوزان</a><?php endif; ?></label><select id="packing" class="form-select"><option value="">— اختر —</option>
-          <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>
+          <?php foreach ($packingTypes as $t): ?><option value="<?= $t['id'] ?>" data-cone="<?= e((string)$t['cone_weight']) ?>" data-pack="<?= e((string)$t['pack_weight']) ?>" data-bag="<?= e((string)$t['bag_weight']) ?>" data-pallet="<?= (int)$t['pallet_size'] ?>"><?= e($t['name']) ?></option><?php endforeach; ?></select></div>
         <div class="col-md-5"><label class="form-label">لون الكونة</label><select id="cone" class="form-select"><option value="">بدون</option><?= opt($cones, true) ?></select></div>
         <div class="col-md-2"><label class="form-label">عدد الكونات</label><input id="conesCount" type="number" min="0" class="form-control num" value="<?= e(setting('default_cones', '6')) ?>"></div>
       </div>
       <div id="palletInfo" class="pallet-info mt-2 d-none"></div>
       <div class="small text-muted mt-2" id="tareDetail"></div>
     </div>
+    <div class="wh-card mb-3" id="warehouse" data-wh="<?= e(json_encode($stats['warehouse'], JSON_UNESCAPED_UNICODE)) ?>"></div>
     <div class="card p-3 mb-3">
       <div class="d-flex justify-content-between"><h6>ملخص النهارده</h6><span class="text-muted small">آخر ساعة: <b id="hourN"><?= (int)$stats['hour']['n'] ?></b> كرتونة — <b class="num" id="hourNet"><?= fmt_qty($stats['hour']['net'], 1) ?></b> كيلو</span></div>
       <table class="table table-sm mb-0" id="summary">
@@ -104,10 +109,12 @@ require __DIR__ . '/inc/header.php';
     <div class="card p-3">
       <div class="d-flex justify-content-between"><h6>آخر الكراتين النهارده</h6><span class="text-muted">الإجمالي: <b class="num" id="todayNet"><?= fmt_qty($todayTotal['net'], 1) ?></b> كيلو — <b id="todayN"><?= (int)$todayTotal['n'] ?></b> كرتونة</span></div>
       <table class="table table-sm mb-0" id="recent">
-        <thead><tr><th>الباركود</th><th>النمرة</th><th>كونات</th><th>قائم</th><th>صافي</th><th>الوقت</th><th></th></tr></thead>
+        <thead><tr><th>الباركود</th><th>رقمها</th><th>النمرة</th><th>كونات</th><th>قائم</th><th>صافي</th><th>الوقت</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($recent as $r): ?>
-          <tr class="<?= $r['status'] === 'void' ? 'text-decoration-line-through text-muted' : '' ?>"><td class="num"><?= e($r['serial']) ?></td><td><?= e($r['code']) ?></td><td><?= (int)$r['cones_count'] ?></td>
+          <tr class="<?= $r['status'] === 'void' ? 'text-decoration-line-through text-muted' : '' ?>"><td class="num"><?= e($r['serial']) ?></td>
+            <td class="num fw-bold text-nowrap" dir="ltr"><?= $r['pallet_serial'] ? '<span class="pal-no">' . (int)$r['pallet_seq'] . '/' . (int)$r['pallet_cap'] . '</span> <span class="small text-muted">' . e($r['pallet_serial']) . '</span>' : '—' ?></td>
+            <td><?= e($r['code']) ?><?= $r['is_mixed'] ? ' <span class="badge bg-warning text-dark">متعدد</span>' : '' ?></td><td><?= (int)$r['cones_count'] ?></td>
             <td class="num"><?= fmt_qty($r['gross'], 2) ?></td><td class="num fw-bold"><?= fmt_qty($r['net'], 2) ?></td><td><?= e(substr($r['created_at'], 11, 5)) ?></td>
             <td><button class="btn btn-sm btn-outline-secondary reprint" data-id="<?= $r['id'] ?>">طباعة</button></td></tr>
         <?php endforeach; ?>
@@ -123,7 +130,7 @@ require __DIR__ . '/inc/header.php';
     <div class="modal-body">
       <div class="small text-muted mb-2">الفوارغ = عدد الكونات × وزن الكونة (بيتاخد من لون الكونة المختارة، وبيتعدّل من «الأصناف») + وزن الكرتونة/الشكارة + عدد الكونات × وزن الكيس. التعديل مش بيغيّر الكراتين اللي اتسجلت قبل كده.</div>
       <table class="table table-sm align-middle" id="ptTable">
-        <thead><tr><th>الاسم</th><th>الكرتونة/الشكارة (مخزن)</th><th class="d-none">وزن الكونة</th><th>وزن الكرتونة/الشكارة</th><th>وزن الكيس (على كل كونة)</th><th>نشط</th></tr></thead>
+        <thead><tr><th>الاسم</th><th>الكرتونة/الشكارة (مخزن)</th><th class="d-none">وزن الكونة</th><th>وزن الكرتونة/الشكارة</th><th>وزن الكيس (على كل كونة)</th><th title="كام كرتونة/شكارة في البالتة (الكرتون 20 والشكاير 15)">سعة البالتة</th><th>نشط</th></tr></thead>
         <tbody></tbody>
       </table>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="ptAdd">+ نوع جديد</button>
@@ -137,5 +144,15 @@ require __DIR__ . '/inc/header.php';
 </div>
 <script type="application/json" id="ptData"><?= json_encode(['types' => $allPackingTypes, 'packs' => $packItems], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?></script>
 <?php endif; ?>
+<div class="modal fade" id="palletChoiceModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title"><i class="bi bi-boxes"></i> فيه بالتة ناقصة لسه في المخزن</h5></div>
+    <div class="modal-body fs-5" id="pcBody"></div>
+    <div class="modal-footer justify-content-between">
+      <button type="button" class="btn btn-outline-secondary btn-lg" id="pcNew">ابدأ بالتة جديدة</button>
+      <button type="button" class="btn btn-primary btn-lg" id="pcContinue">كمّل البالتة دي</button>
+    </div>
+  </div></div>
+</div>
 <iframe id="printFrame" style="position:absolute;width:0;height:0;border:0;left:-9999px"></iframe>
 <?php require __DIR__ . '/inc/footer.php';

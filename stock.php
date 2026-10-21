@@ -18,7 +18,10 @@ $sql = "SELECT i.id, i.code, i.name, i.type, i.unit, i.lot_no,
           COALESCE(SUM(CASE WHEN m.move_date >= ? AND m.move_date < DATE_ADD(?, INTERVAL 1 DAY) AND m.qty > 0 THEN m.qty END), 0) qty_in,
           COALESCE(-SUM(CASE WHEN m.move_date >= ? AND m.move_date < DATE_ADD(?, INTERVAL 1 DAY) AND m.qty < 0 THEN m.qty END), 0) qty_out,
           COALESCE(SUM(CASE WHEN m.move_date < DATE_ADD(?, INTERVAL 1 DAY) THEN m.qty END), 0) bal,
-          (SELECT COUNT(*) FROM packages p WHERE p.finished_item_id = i.id AND p.status = 'in_stock') cartons
+          (SELECT COUNT(*) FROM packages p LEFT JOIN items pi ON pi.id = p.pack_item_id
+            WHERE p.finished_item_id = i.id AND p.status = 'in_stock' AND (pi.name IS NULL OR pi.name NOT LIKE '%شكار%')) cartons,
+          (SELECT COUNT(*) FROM packages p JOIN items pi ON pi.id = p.pack_item_id
+            WHERE p.finished_item_id = i.id AND p.status = 'in_stock' AND pi.name LIKE '%شكار%') sacks
         FROM items i LEFT JOIN stock_moves m ON m.item_id = i.id WHERE i.active = 1";
 $params = [$from, $to, $from, $to, $to];
 if ($type !== '') { $sql .= ' AND i.type = ?'; $params[] = $type; }
@@ -26,9 +29,9 @@ $sql .= " GROUP BY i.id ORDER BY FIELD(i.type,'raw','cone','pack','finished','ot
 $all = q($sql, $params)->fetchAll();
 
 // quick summary over the selected type (before the "show" filter); carton counts are live, so only meaningful up to today
-$sum = ['finished_kg' => 0.0, 'finished_cartons' => 0, 'produced' => 0.0, 'raw_kg' => 0.0, 'cones' => 0.0, 'packs' => []];
+$sum = ['finished_kg' => 0.0, 'finished_cartons' => 0, 'finished_sacks' => 0, 'produced' => 0.0, 'raw_kg' => 0.0, 'cones' => 0.0, 'packs' => []];
 foreach ($all as $r) {
-    if ($r['type'] === 'finished') { $sum['finished_kg'] += $r['bal']; $sum['finished_cartons'] += (int)$r['cartons']; $sum['produced'] += $r['qty_in']; }
+    if ($r['type'] === 'finished') { $sum['finished_kg'] += $r['bal']; $sum['finished_cartons'] += (int)$r['cartons']; $sum['finished_sacks'] += (int)$r['sacks']; $sum['produced'] += $r['qty_in']; }
     elseif ($r['type'] === 'raw') $sum['raw_kg'] += $r['bal'];
     elseif ($r['type'] === 'cone') $sum['cones'] += $r['bal'];
     elseif ($r['type'] === 'pack') $sum['packs'][] = [$r['name'], $r['bal']];
@@ -45,10 +48,10 @@ if (isset($_GET['csv'])) {
     header("Content-Disposition: attachment; filename=\"stock.csv\"; filename*=UTF-8''" . rawurlencode($fileName . '.csv'));
     $o = fopen('php://output', 'w');
     fwrite($o, "\xEF\xBB\xBF");
-    fputcsv($o, ['الكود', 'الصنف', 'النوع', 'اللوط', 'الكمية الداخلة', 'الكمية الخارجة', 'رصيد الفترة', 'الرصيد الكلي', 'الوحدة', 'كراتين في المخزن']);
+    fputcsv($o, ['الكود', 'الصنف', 'النوع', 'اللوط', 'الكمية الداخلة', 'الكمية الخارجة', 'رصيد الفترة', 'الرصيد الكلي', 'الوحدة', 'كراتين في المخزن', 'شكاير في المخزن']);
     foreach ($rows as $r) {
         fputcsv($o, [$r['code'], $r['name'], ITEM_TYPES[$r['type']], $r['lot_no'], round($r['qty_in'], 3), round($r['qty_out'], 3), round($r['qty_in'] - $r['qty_out'], 3),
-            round($r['bal'], 3), UNITS[$r['unit']], $r['type'] === 'finished' ? (int)$r['cartons'] : '']);
+            round($r['bal'], 3), UNITS[$r['unit']], $r['type'] === 'finished' ? (int)$r['cartons'] : '', $r['type'] === 'finished' ? (int)$r['sacks'] : '']);
     }
     exit;
 }
@@ -122,31 +125,31 @@ table.inv tr.sub td { font-weight: 800; background: #f6f7f9; }
   </tr></table>
   <div class="sum-box">
     <?php if ($type === '' || $type === 'finished'): ?><div>إنتاج الفترة (خيط تام)<b class="num"><?= fmt_qty($sum['produced'], 3) ?> كيلو</b></div>
-    <div>خيط تام<b class="num"><?= fmt_qty($sum['finished_kg'], 3) ?> كيلو</b><?php if ($to === $today): ?><small><?= (int)$sum['finished_cartons'] ?> كرتونة في المخزن</small><?php endif; ?></div><?php endif; ?>
+    <div>خيط تام<b class="num"><?= fmt_qty($sum['finished_kg'], 3) ?> كيلو</b><?php if ($to === $today): ?><small><?= (int)$sum['finished_cartons'] ?> كرتونة<?= $sum['finished_sacks'] ? ' + ' . (int)$sum['finished_sacks'] . ' شكارة' : '' ?> في المخزن</small><?php endif; ?></div><?php endif; ?>
     <?php if ($type === '' || $type === 'raw'): ?><div>خام POY<b class="num"><?= fmt_qty($sum['raw_kg'], 3) ?> كيلو</b></div><?php endif; ?>
     <?php if ($type === '' || $type === 'cone'): ?><div>الكونات<b class="num"><?= fmt_qty($sum['cones'], 0) ?> قطعة</b></div><?php endif; ?>
     <?php if ($type === '' || $type === 'pack'): foreach ($sum['packs'] as [$pn, $pq]): ?><div><?= e($pn) ?><b class="num"><?= fmt_qty($pq, 0) ?> قطعة</b></div><?php endforeach; endif; ?>
   </div>
   <table class="inv">
-    <thead><tr><th>#</th><th>رقم المادة</th><th>اسم المادة</th><th>الكمية الداخلة</th><th>الكمية الخارجة</th><th>رصيد الفترة</th><th>الرصيد الكلي</th><th>الوحدة</th><?php if ($type === '' || $type === 'finished'): ?><th>كراتين</th><?php endif; ?></tr></thead>
+    <thead><tr><th>#</th><th>رقم المادة</th><th>اسم المادة</th><th>الكمية الداخلة</th><th>الكمية الخارجة</th><th>رصيد الفترة</th><th>الرصيد الكلي</th><th>الوحدة</th><?php if ($type === '' || $type === 'finished'): ?><th>كراتين</th><th>شكاير</th><?php endif; ?></tr></thead>
     <?php
-    $cols = ($type === '' || $type === 'finished') ? 9 : 8;
-    $n = 0; $cur = null; $sub = ['in' => 0, 'out' => 0, 'bal' => 0, 'c' => 0]; $tot = [];
+    $cols = ($type === '' || $type === 'finished') ? 10 : 8;
+    $n = 0; $cur = null; $sub = ['in' => 0, 'out' => 0, 'bal' => 0, 'c' => 0, 's' => 0]; $tot = [];
     $flush = function () use (&$sub, &$cur, $cols, &$tot) {
         if ($cur === null) return;
-        echo '<tr class="sub"><td colspan="3" style="text-align:right">إجمالي ' . e(ITEM_TYPES[$cur]) . '</td><td class="num">' . fmt_qty($sub['in'], 3) . '</td><td class="num">' . fmt_qty($sub['out'], 3) . '</td><td class="num">' . fmt_qty($sub['in'] - $sub['out'], 3) . '</td><td class="num">' . fmt_qty($sub['bal'], 3) . '</td><td></td>' . ($cols === 9 ? '<td>' . ($cur === 'finished' ? $sub['c'] : '') . '</td>' : '') . '</tr>';
-        $sub = ['in' => 0, 'out' => 0, 'bal' => 0, 'c' => 0];
+        echo '<tr class="sub"><td colspan="3" style="text-align:right">إجمالي ' . e(ITEM_TYPES[$cur]) . '</td><td class="num">' . fmt_qty($sub['in'], 3) . '</td><td class="num">' . fmt_qty($sub['out'], 3) . '</td><td class="num">' . fmt_qty($sub['in'] - $sub['out'], 3) . '</td><td class="num">' . fmt_qty($sub['bal'], 3) . '</td><td></td>' . ($cols === 10 ? '<td>' . ($cur === 'finished' ? $sub['c'] : '') . '</td><td>' . ($cur === 'finished' ? $sub['s'] : '') . '</td>' : '') . '</tr>';
+        $sub = ['in' => 0, 'out' => 0, 'bal' => 0, 'c' => 0, 's' => 0];
     };
     foreach ($rows as $r):
         if ($grouped && $r['type'] !== $cur) { $flush(); $cur = $r['type']; echo '<tr class="grp"><td colspan="' . $cols . '">' . e(ITEM_TYPES[$cur]) . '</td></tr>'; }
         $n++; $dd = $d($r);
-        $sub['in'] += $r['qty_in']; $sub['out'] += $r['qty_out']; $sub['bal'] += $r['bal']; $sub['c'] += (int)$r['cartons'];
+        $sub['in'] += $r['qty_in']; $sub['out'] += $r['qty_out']; $sub['bal'] += $r['bal']; $sub['c'] += (int)$r['cartons']; $sub['s'] += (int)$r['sacks'];
         $tot[$r['unit']] = ($tot[$r['unit']] ?? 0) + $r['bal'];
     ?>
       <tr><td><?= $n ?></td><td class="num"><?= e($r['code']) ?></td><td class="name"><?= e($r['name']) ?></td>
         <td class="num"><?= fmt_qty($r['qty_in'], $dd) ?></td><td class="num"><?= fmt_qty($r['qty_out'], $dd) ?></td><td class="num"><?= fmt_qty($r['qty_in'] - $r['qty_out'], $dd) ?></td>
         <td class="num fw-bold <?= $r['bal'] < -0.0005 ? 'neg' : '' ?>"><?= fmt_qty($r['bal'], $dd) ?></td><td><?= UNITS[$r['unit']] ?></td>
-        <?php if ($cols === 9): ?><td><?= $r['type'] === 'finished' ? (int)$r['cartons'] : '' ?></td><?php endif; ?></tr>
+        <?php if ($cols === 10): ?><td><?= $r['type'] === 'finished' ? (int)$r['cartons'] : '' ?></td><td><?= $r['type'] === 'finished' ? (int)$r['sacks'] : '' ?></td><?php endif; ?></tr>
     <?php endforeach; if ($grouped) $flush(); ?>
     <?php if (!$rows): ?><tr><td colspan="<?= $cols ?>">مفيش مواد بالفلاتر دي</td></tr><?php endif; ?>
   </table>

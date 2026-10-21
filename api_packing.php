@@ -53,21 +53,24 @@ foreach ($rows as $r) {
         out(['ok' => false, 'error' => 'الاسم مطلوب'], 422);
     }
     $pack = (int)($r['pack_item_id'] ?? 0);
-    $clean[] = ['id' => $id, 'name' => $name, 'pack' => in_array($pack, $packIds, true) ? $pack : null, 'active' => empty($r['active']) ? 0 : 1] + $w;
+    $size = (int)($r['pallet_size'] ?? 20);
+    if ($size < 1 || $size > 200) out(['ok' => false, 'error' => "سعة البالتة غير منطقية في: $name"], 422);
+    $clean[] = ['id' => $id, 'name' => $name, 'pack' => in_array($pack, $packIds, true) ? $pack : null, 'active' => empty($r['active']) ? 0 : 1, 'pallet_size' => $size] + $w;
 }
 
 $pdo = db();
 $pdo->beginTransaction();
 try {
     foreach ($clean as $c) {
-        $vals = [$c['name'], $c['pack'], $c['cone_weight'], $c['pack_weight'], $c['bag_weight'], $c['active']];
-        if ($c['id']) q('UPDATE packing_types SET name=?, pack_item_id=?, cone_weight=?, pack_weight=?, bag_weight=?, active=? WHERE id=?', [...$vals, $c['id']]);
-        else q('INSERT INTO packing_types (name, pack_item_id, cone_weight, pack_weight, bag_weight, active) VALUES (?,?,?,?,?,?)', $vals);
+        $vals = [$c['name'], $c['pack'], $c['cone_weight'], $c['pack_weight'], $c['bag_weight'], $c['active'], $c['pallet_size']];
+        // a new size only applies to pallets started afterwards: pallets already open keep their own capacity
+        if ($c['id']) q('UPDATE packing_types SET name=?, pack_item_id=?, cone_weight=?, pack_weight=?, bag_weight=?, active=?, pallet_size=? WHERE id=?', [...$vals, $c['id']]);
+        else q('INSERT INTO packing_types (name, pack_item_id, cone_weight, pack_weight, bag_weight, active, pallet_size) VALUES (?,?,?,?,?,?,?)', $vals);
     }
     $pdo->commit();
 } catch (Throwable $ex) {
     $pdo->rollBack();
     out(['ok' => false, 'error' => 'خطأ في الحفظ'], 500);
 }
-$types = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active FROM packing_types ORDER BY id')->fetchAll();
+$types = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active, pallet_size FROM packing_types ORDER BY id')->fetchAll();
 out(['ok' => true, 'types' => $types, 'approved_by' => $approver['full_name']]);

@@ -115,15 +115,17 @@ function save_package(array $d, int $userId): array
     if ($gross <= 0) throw new InvalidArgumentException('الوزن القائم لازم يكون أكبر من صفر');
     if ($net <= 0) throw new InvalidArgumentException('الوزن الصافي طلع صفر أو سالب — راجع الوزن والفوارغ');
     $source = ($d['weight_source'] ?? '') === 'scale' ? 'scale' : 'manual';
+    $mixed = !empty($d['mixed']) ? 1 : 0;   // متعدد: the cone count changes from carton to carton
+    if ($mixed && $cones < 1) throw new InvalidArgumentException('في المتعدد لازم تكتب عدد الكونات');
 
     $pdo = db();
     for ($attempt = 0; $attempt < 3; $attempt++) {
         $pdo->beginTransaction();
         try {
             $serial = next_package_serial();
-            q('INSERT INTO packages (serial, finished_item_id, raw_item_id, cone_item_id, cones_count, pack_item_id, packing_type_id, cone_weight, pack_weight, bag_weight, tare, gross, net, weight_source, user_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-                $serial, $fin['id'], $raw['id'] ?? null, $cone['id'] ?? null, $cones, $pack['id'] ?? null, $pt['id'],
+            q('INSERT INTO packages (serial, finished_item_id, raw_item_id, cone_item_id, cones_count, is_mixed, pack_item_id, packing_type_id, cone_weight, pack_weight, bag_weight, tare, gross, net, weight_source, user_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
+                $serial, $fin['id'], $raw['id'] ?? null, $cone['id'] ?? null, $cones, $mixed, $pack['id'] ?? null, $pt['id'],
                 $coneW, $packW, $bagW, $tare, $gross, $net, $source, $userId,
             ]);
             $pkgId = (int)$pdo->lastInsertId();
@@ -133,7 +135,7 @@ function save_package(array $d, int $userId): array
             if ($cone && $cones > 0) q($mv, [$cone['id'], -$cones, -$cones, $pkgId, $now]);
             if ($pack) q($mv, [$pack['id'], -1, -1, $pkgId, $now]);
             q($mv, [$raw['id'], -$net, 0, $pkgId, $now]);   // the yarn's net weight comes out of the raw POY
-            $pallet = assign_pallet($pkgId, (int)$fin['id']);
+            $pallet = assign_pallet($pkgId, (int)$fin['id'], $mixed, !empty($d['new_pallet']), (int)$pt['id'], (int)$pt['pallet_size']);
             $pdo->commit();
             return ['id' => $pkgId, 'serial' => $serial, 'tare' => $tare, 'net' => $net, 'pallet' => $pallet];
         } catch (Throwable $ex) {
@@ -158,7 +160,7 @@ function void_package(int $pkgId, string $reason): void
     }
     q("DELETE FROM stock_moves WHERE source='package' AND source_id=?", [$pkgId]);
     // the freed slot reopens the pallet: the next carton of that count takes the empty number
-    if ($palletId) q('UPDATE pallets SET full=0, closed_at=NULL WHERE id=?', [$palletId]);
+    if ($palletId) q('UPDATE pallets SET full=0, closed_at=IF(closed=1, closed_at, NULL) WHERE id=?', [$palletId]);
     $pdo->commit();
 }
 
@@ -167,12 +169,21 @@ function void_package(int $pkgId, string $reason): void
  * lowest free number 1..capacity. Marks the pallet full when the last slot is taken.
  * Must run inside the save transaction (locks the pallet row).
  */
-function assign_pallet(int $pkgId, int $itemId): array
+function assign_pallet(int $pkgId, int $itemId, int $mixed = 0, bool $startNew = false, int $ptypeId = 0, int $cap = 20): array
 {
-    $cap = max(1, (int)setting('pallet_size', '20'));
-    $pl = q('SELECT * FROM pallets WHERE finished_item_id=? AND full=0 ORDER BY id LIMIT 1 FOR UPDATE', [$itemId])->fetch();
+    // pallets are per count, type (نظامي/متعدد) and packing type (كرتونة 20 / شكارة 15): they never mix
+    $cap = max(1, $cap);
+    $key = [$itemId, $mixed, $ptypeId];
+    // an open pallet whose cartons were all sold is finished with: close it so the count starts a fresh pallet
+    q("UPDATE pallets pl SET pl.closed=1, pl.closed_at=NOW()
+       WHERE pl.finished_item_id=? AND pl.is_mixed=? AND pl.packing_type_id=? AND pl.full=0 AND pl.closed=0
+         AND EXISTS (SELECT 1 FROM packages p WHERE p.pallet_id=pl.id AND p.status<>'void')
+         AND NOT EXISTS (SELECT 1 FROM packages p WHERE p.pallet_id=pl.id AND p.status='in_stock')", $key);
+    // the operator chose "start a new pallet": leave the current one as it is (partly filled) and close it
+    if ($startNew) q('UPDATE pallets SET closed=1, closed_at=NOW() WHERE finished_item_id=? AND is_mixed=? AND packing_type_id=? AND full=0 AND closed=0', $key);
+    $pl = q('SELECT * FROM pallets WHERE finished_item_id=? AND is_mixed=? AND packing_type_id=? AND full=0 AND closed=0 ORDER BY id LIMIT 1 FOR UPDATE', $key)->fetch();
     if (!$pl) {
-        q('INSERT INTO pallets (serial, finished_item_id, capacity) VALUES (?,?,?)', ['T' . bin2hex(random_bytes(6)), $itemId, $cap]);
+        q('INSERT INTO pallets (serial, finished_item_id, is_mixed, packing_type_id, capacity) VALUES (?,?,?,?,?)', ['T' . bin2hex(random_bytes(6)), $itemId, $mixed, $ptypeId, $cap]);
         $pid = (int)db()->lastInsertId();
         q("UPDATE pallets SET serial=CONCAT('P', LPAD(id, 5, '0')) WHERE id=?", [$pid]);
         $pl = q('SELECT * FROM pallets WHERE id=?', [$pid])->fetch();
@@ -184,5 +195,5 @@ function assign_pallet(int $pkgId, int $itemId): array
     $count = count($used) + 1;
     $full = $count >= (int)$pl['capacity'];
     if ($full) q('UPDATE pallets SET full=1, closed_at=NOW() WHERE id=?', [$pl['id']]);
-    return ['id' => (int)$pl['id'], 'serial' => $pl['serial'], 'seq' => $seq, 'count' => $count, 'capacity' => (int)$pl['capacity'], 'full' => $full];
+    return ['id' => (int)$pl['id'], 'serial' => $pl['serial'], 'seq' => $seq, 'count' => $count, 'capacity' => (int)$pl['capacity'], 'full' => $full, 'mixed' => (bool)$mixed];
 }

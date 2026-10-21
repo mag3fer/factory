@@ -151,6 +151,39 @@ a { color: var(--tl-blue); }
 .tb-track { position: relative; height: 10px; margin-top: 5px; border-radius: 6px; background: linear-gradient(90deg, #ef4444, #f59e0b 25%, #10b981 37.5%, #10b981 62.5%, #f59e0b 75%, #ef4444); opacity: .85; }
 .tb-mid { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: #111827; }
 .tb-dot { position: absolute; top: -4px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: #fff; border: 3px solid var(--c); box-shadow: 0 1px 4px rgba(0, 0, 0, .4); transition: left .4s cubic-bezier(.3, 1.4, .5, 1); }
+.wh-card { border-radius: 16px; padding: 16px 18px; color: #e8f1ff; background: linear-gradient(135deg, #0f2a4a 0%, #14507a 55%, #0e7490 100%); box-shadow: 0 8px 22px rgba(15, 42, 74, .28); }
+.wh-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 1.05rem; }
+.wh-head small { font-weight: 400; font-size: .75rem; opacity: .7; }
+.wh-main { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 10px 0 12px; }
+.wh-kg { font-size: 3rem; font-weight: 800; line-height: 1; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+.wh-kg small { font-size: .9rem; font-weight: 500; opacity: .75; margin-left: 8px; }
+.wh-kpis { display: flex; gap: 8px; }
+.wh-kpis div { background: rgba(255, 255, 255, .12); border-radius: 10px; padding: 6px 14px; text-align: center; min-width: 78px; }
+.wh-kpis b { display: block; font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+.wh-kpis span { font-size: .72rem; opacity: .75; }
+.wh-items { border-top: 1px solid rgba(255, 255, 255, .18); padding-top: 8px; display: grid; gap: 8px; }
+.wh-row { display: grid; grid-template-columns: 1.1fr 1.4fr auto; grid-template-areas: "name bar num" "sub sub sub"; align-items: center; gap: 2px 12px; }
+.wh-name { grid-area: name; display: flex; flex-direction: column; line-height: 1.2; }
+.wh-name span { font-size: .72rem; opacity: .65; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 230px; }
+.wh-bar { grid-area: bar; height: 8px; border-radius: 6px; background: rgba(255, 255, 255, .15); overflow: hidden; }
+.wh-bar i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #5eead4, #38bdf8); transition: width .5s ease; }
+.wh-num { grid-area: num; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wh-sub { grid-area: sub; font-size: .75rem; opacity: .7; }
+.wh-empty { text-align: center; opacity: .7; padding: 6px; }
+.wh-tag { font-style: normal; font-size: .65rem; background: #f59e0b; color: #1f2937; border-radius: 6px; padding: 1px 6px; margin-right: 4px; vertical-align: middle; }
+.wh-tag.sack { background: #a7f3d0; }
+.pallet-info.mixed { background: #fffbeb; color: #92400e; }
+.mode-switch { display: flex; gap: 8px; }
+.mode-switch button { flex: 1; border: 2px solid #cbd5e1; background: #f8fafc; border-radius: 12px; padding: 8px 10px; line-height: 1.2; display: flex; flex-direction: column; align-items: center; transition: all .15s; }
+.mode-switch button b { font-size: 1.15rem; }
+.mode-switch button small { font-size: .75rem; opacity: .7; }
+.mode-switch button.active { border-color: #2563eb; background: #2563eb; color: #fff; box-shadow: 0 4px 12px rgba(37, 99, 235, .35); }
+.mode-switch button.active[data-mode="1"] { border-color: #d97706; background: #f59e0b; color: #1f2937; box-shadow: 0 4px 12px rgba(245, 158, 11, .4); }
+.mode-mixed .scale-device { box-shadow: 0 10px 24px rgba(245, 158, 11, .35), inset 0 2px 0 rgba(255, 255, 255, .7); }
+#conesCount[readonly] { background: #e9ecef; cursor: not-allowed; }
+.saved-no { font-size: 1.6rem; font-weight: 700; margin-top: 4px; color: #14532d; }
+.saved-no b { font-size: 2.2rem; color: #166534; } .saved-no small { font-size: .9rem; font-weight: 500; color: #475569; }
+.pal-no { color: #3730a3; }
 .pallet-info { padding: 6px 10px; border-radius: 8px; background: #eef2ff; color: #3730a3; font-size: .95rem; }
 .dev-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #10b981; margin-left: 4px; }
 .dev-dot.warn { background: #f59e0b; } .dev-dot.bad { background: #ef4444; }
