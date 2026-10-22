@@ -4,19 +4,32 @@
 
 function scale_stats(): array
 {
-    $items = q("SELECT i.code, i.name, COUNT(*) n, COALESCE(SUM(p.cones_count),0) cones, COALESCE(SUM(p.net),0) net
-                FROM packages p JOIN items i ON i.id=p.finished_item_id
+    // one line per count, type (نظامي / متعدد) and packing (كرتونة / شكارة)
+    $items = q("SELECT i.code, i.name, p.is_mixed mixed, (pi.name LIKE '%شكار%') sack, COUNT(*) n, COALESCE(SUM(p.cones_count),0) cones, COALESCE(SUM(p.net),0) net
+                FROM packages p JOIN items i ON i.id=p.finished_item_id LEFT JOIN items pi ON pi.id=p.pack_item_id
                 WHERE p.status<>'void' AND DATE(p.created_at)=CURDATE()
-                GROUP BY i.id, i.code, i.name ORDER BY net DESC")->fetchAll();
-    $hour = q("SELECT COUNT(*) n, COALESCE(SUM(net),0) net FROM packages
-               WHERE status<>'void' AND created_at >= NOW() - INTERVAL 1 HOUR")->fetch();
-    $total = ['n' => 0, 'cones' => 0, 'net' => 0.0];
+                GROUP BY i.id, i.code, i.name, p.is_mixed, (pi.name LIKE '%شكار%') ORDER BY net DESC")->fetchAll();
+    $hour = q("SELECT COUNT(*) n, COALESCE(SUM(p.net),0) net, COALESCE(SUM(pi.name LIKE '%شكار%'),0) sacks FROM packages p LEFT JOIN items pi ON pi.id=p.pack_item_id
+               WHERE p.status<>'void' AND p.created_at >= NOW() - INTERVAL 1 HOUR")->fetch();
+    $hour['cartons'] = (int)$hour['n'] - (int)$hour['sacks'];
+    $total = ['n' => 0, 'cones' => 0, 'net' => 0.0, 'sacks' => 0];
     foreach ($items as $r) {
         $total['n'] += (int)$r['n'];
+        if ($r['sack']) $total['sacks'] += (int)$r['n'];
         $total['cones'] += (int)$r['cones'];
         $total['net'] += (float)$r['net'];
     }
+    $total['cartons'] = $total['n'] - $total['sacks'];
     return ['items' => $items, 'hour' => $hour, 'total' => $total, 'warehouse' => warehouse_stock()];
+}
+
+// "5 كرتونة" / "3 شكارة" / "5 كرتونة + 3 شكارة" — cartons and sacks are never lumped together
+function count_text(int $cartons, int $sacks): string
+{
+    $parts = [];
+    if ($cartons > 0 || $sacks === 0) $parts[] = $cartons . ' كرتونة';
+    if ($sacks > 0) $parts[] = $sacks . ' شكارة';
+    return implode(' + ', $parts);
 }
 
 // Finished goods on hand right now (cartons with status in_stock), per count, for the station's stock card.
@@ -40,6 +53,8 @@ function warehouse_stock(): array
     }
     unset($r);
     $total['kg'] = round($total['kg'], 2);
+    $total['sacks'] = array_sum(array_map(fn($r) => $r['sack'] ? $r['n'] : 0, $items));   // sacks counted apart from cartons
+    $total['cartons'] = $total['n'] - $total['sacks'];
     return ['items' => $items, 'total' => $total];
 }
 
@@ -47,7 +62,7 @@ function warehouse_stock(): array
 function scale_usual_per_cone(): array
 {
     $rows = q("SELECT finished_item_id, net / cones_count AS pc FROM packages
-               WHERE status<>'void' AND cones_count > 0 AND created_at >= NOW() - INTERVAL 60 DAY
+               WHERE status<>'void' AND is_mixed=0 AND cones_count > 0 AND created_at >= NOW() - INTERVAL 60 DAY
                ORDER BY id DESC LIMIT 600")->fetchAll();
     $by = [];
     foreach ($rows as $r) {

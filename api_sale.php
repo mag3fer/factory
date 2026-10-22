@@ -1,6 +1,6 @@
 <?php
 // JSON endpoint for the sales invoice screen: scan lookup, last price, save.
-require __DIR__ . '/inc/bootstrap.php';
+require_once __DIR__ . '/inc/bootstrap.php';
 require __DIR__ . '/inc/sales.php';
 header('Content-Type: application/json; charset=utf-8');
 
@@ -35,6 +35,19 @@ try {
                 'id' => (int)$p['id'], 'serial' => $p['serial'], 'item_id' => (int)$p['finished_item_id'], 'code' => $p['code'], 'name' => $p['name'],
                 'net' => (float)$p['net'], 'cones' => (int)$p['cones_count'], 'sold_price' => isset($p['sold_price']) ? (float)$p['sold_price'] : null,
             ]]);
+        case 'stock_list':
+            // everything in stock, grouped by pallet (loose cartons last) — for picking without scanning
+            $rows = q("SELECT p.id, p.serial, p.pallet_id, p.pallet_seq, p.finished_item_id, p.net, p.cones_count, i.code, i.name, pl.serial AS pallet_serial, pl.capacity
+                       FROM packages p JOIN items i ON i.id=p.finished_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id
+                       WHERE p.status='in_stock' ORDER BY (p.pallet_id IS NULL), pl.serial, p.pallet_seq, p.serial")->fetchAll();
+            $groups = [];
+            foreach ($rows as $r) {
+                $k = $r['pallet_id'] ?: 0;
+                $groups[$k] ??= ['pallet' => $r['pallet_serial'], 'capacity' => (int)$r['capacity'], 'code' => $r['code'], 'name' => $r['name'], 'packages' => []];
+                $groups[$k]['packages'][] = ['id' => (int)$r['id'], 'serial' => $r['serial'], 'seq' => $r['pallet_seq'] ? (int)$r['pallet_seq'] : null,
+                    'item_id' => (int)$r['finished_item_id'], 'code' => $r['code'], 'name' => $r['name'], 'net' => (float)$r['net'], 'cones' => (int)$r['cones_count'], 'sold_price' => null];
+            }
+            out(['ok' => true, 'groups' => array_values($groups)]);
         case 'balance':
             out(['ok' => true, 'balance' => party_balance($customerId)]);
         case 'last_price':
@@ -49,7 +62,7 @@ try {
             if (!is_array($data)) out(['ok' => false, 'error' => 'بيانات غير صحيحة'], 422);
             $id = save_sale([
                 'type' => $type, 'kind' => $data['kind'] ?? 'invoice', 'inv_date' => $data['inv_date'] ?? '', 'customer_id' => $customerId, 'notes' => $data['notes'] ?? '',
-                'driver_name' => $data['driver_name'] ?? '', 'car_no' => $data['car_no'] ?? '', 'receiver' => $data['receiver'] ?? '', 'organizer' => $data['organizer'] ?? '',
+                'driver_name' => $data['driver_name'] ?? '', 'car_no' => $data['car_no'] ?? '', 'receiver' => $data['receiver'] ?? '', 'contact_phone' => $data['contact_phone'] ?? '', 'organizer' => $data['organizer'] ?? '',
                 'discount' => $data['discount'] ?? 0, 'paid' => $data['paid'] ?? 0, 'pay_method' => $data['pay_method'] ?? 'cash',
             ], (array)($data['packages'] ?? []), (array)($data['prices'] ?? []), (array)($data['manual'] ?? []), $u['id']);
             out(['ok' => true, 'id' => $id]);

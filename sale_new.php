@@ -50,6 +50,7 @@ require __DIR__ . '/inc/header.php';
         <div class="col-md-3"><label class="form-label">الجهة المستلمة</label><input id="receiver" class="form-control" maxlength="150" placeholder="مثال: مصنع الكوثر - العاشر"></div>
         <div class="col-md-3"><label class="form-label">اسم السائق</label><input id="driverName" class="form-control" maxlength="100"></div>
         <div class="col-md-3"><label class="form-label">رقم السيارة</label><input id="carNo" class="form-control" maxlength="50"></div>
+        <div class="col-md-3"><label class="form-label">هاتف مندوب الاستلام <span class="text-muted small">(مش تبعنا — للسائق)</span></label><input id="contactPhone" class="form-control num" maxlength="40" inputmode="tel" dir="ltr"></div>
         <div class="col-md-3"><label class="form-label">المنظم</label><input id="organizer" class="form-control" maxlength="100" placeholder="اختياري - لو فاضي بيتسيب فاضي"></div>
       </div>
     </div>
@@ -57,9 +58,17 @@ require __DIR__ . '/inc/header.php';
       <label class="form-label fw-bold"><i class="bi bi-upc"></i> امسح باركود الكرتونة <?= $type === 'return' ? 'المرتجعة' : '' ?> (أو اكتبه ودوس Enter)</label>
       <div class="scan-box"><input id="scan" class="form-control" autocomplete="off" placeholder="2610110001"><div class="beam"></div></div>
       <div id="scanMsg" class="mt-2"></div>
+      <?php if ($type === 'sale'): ?>
+      <div class="mt-3"><button type="button" class="btn btn-outline-primary" id="btnPick"><i class="bi bi-boxes"></i> اختيار من المخزن (بالتات وكراتين) من غير باركود</button></div>
+      <div id="pickPanel" class="mt-3 d-none">
+        <div class="d-flex gap-2 mb-2"><input id="pickFilter" class="form-control form-control-sm" placeholder="فلتر: نمرة أو رقم بالتة أو رقم كرتونة"><button type="button" class="btn btn-sm btn-outline-secondary" id="pickReload"><i class="bi bi-arrow-repeat"></i></button></div>
+        <div id="pickList" style="max-height:420px;overflow:auto"></div>
+      </div>
+      <?php endif; ?>
     </div>
     <div class="card p-0 mb-3 reveal">
       <div class="p-3 pb-2 card-title-row"><h6>الكراتين (<span id="pkgCount">0</span>)</h6><span class="text-muted small">إجمالي الوزن: <b class="num" id="pkgKg">0</b> كيلو</span></div>
+      <div class="px-3" id="palChips"></div>
       <div class="table-responsive" style="max-height:340px">
       <table class="table table-sm table-hover" id="pkgTable">
         <thead><tr><th>#</th><th>الباركود</th><th>الكود</th><th>النمرة</th><th>كونات</th><th>صافي (كيلو)</th><th></th></tr></thead>

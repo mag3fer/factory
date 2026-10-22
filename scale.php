@@ -11,8 +11,8 @@ $cones = items_by_type('cone');
 $allPackingTypes = q('SELECT id, name, pack_item_id, cone_weight, pack_weight, bag_weight, active, pallet_size FROM packing_types ORDER BY id')->fetchAll();
 $packingTypes = array_values(array_filter($allPackingTypes, fn($t) => $t['active']));
 $packItems = q("SELECT id, code, name FROM items WHERE type='pack' AND active=1 ORDER BY code")->fetchAll();
-$recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.is_mixed, p.status, p.created_at, p.pallet_seq, pl.serial pallet_serial, pl.capacity pallet_cap, i.code, i.name
-             FROM packages p JOIN items i ON i.id=p.finished_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id
+$recent = q("SELECT p.id, p.serial, p.net, p.gross, p.cones_count, p.is_mixed, p.status, p.created_at, p.pallet_seq, pl.serial pallet_serial, pl.capacity pallet_cap, i.code, i.name, (pi.name LIKE '%شكار%') sack
+             FROM packages p JOIN items i ON i.id=p.finished_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id LEFT JOIN items pi ON pi.id=p.pack_item_id
              WHERE DATE(p.created_at)=CURDATE() ORDER BY p.id DESC LIMIT 15")->fetchAll();
 require __DIR__ . '/inc/scale_stats.php';
 $stats = scale_stats();
@@ -39,7 +39,7 @@ require __DIR__ . '/inc/header.php';
      data-std-cones="<?= (int)setting('default_cones', '6') ?>"
      data-pallets="<?= e(json_encode((object)$openPallets)) ?>" data-pallet-size="<?= $palletSize ?>"
      data-usual="<?= e(json_encode((object)$usual)) ?>">
-  <div class="col-xl-5">
+  <div class="col-xl-6">
     <div class="card p-3">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h5 class="mb-0">الوزن القائم</h5>
@@ -48,10 +48,15 @@ require __DIR__ . '/inc/header.php';
           <button id="btnConnect" class="btn btn-sm btn-outline-primary">توصيل الميزان</button>
         </div>
       </div>
+      <div id="focusStrip" class="focus-strip"></div>
       <div class="scale-device">
         <div class="sd-top"><span class="sd-brand">ANHENG <b>ETA-AC</b></span>
           <span class="sd-leds"><i id="ledStable" class="led">STABLE</i><i id="ledZero" class="led">ZERO</i><i id="ledSaved" class="led led-red">SAVED</i></span></div>
-        <div class="sd-lcd"><div class="sd-ghost" aria-hidden="true">888.88</div><div id="display" class="scale-display offline">0.00</div><span class="sd-unit">kg</span></div>
+        <div class="sd-lcd">
+          <div class="lcd-ann"><span id="annStable">STABLE</span><span id="annZero">▶0◀</span><span id="annGross" class="on">GROSS</span><span class="ann-r">MAX 150 kg &nbsp; d = 50 g</span></div>
+          <div class="lcd-main"><div id="display" class="scale-display offline" role="img" aria-label="الوزن القائم"></div><span class="sd-unit">kg</span></div>
+          <div class="sd-bar" id="sdBar" aria-hidden="true"></div>
+        </div>
         <div class="sd-plate-wrap"><div class="sd-plate" id="plate"></div><div class="sd-base"></div></div>
       </div>
       <div class="input-group mt-2">
@@ -64,8 +69,8 @@ require __DIR__ . '/inc/header.php';
       <button id="btnSameWeight" class="btn btn-sm btn-outline-warning mt-1 d-none">الكرتونة الجديدة نفس الوزن بالظبط — استخدم الوزن ده</button>
       <hr>
       <div class="row text-center">
-        <div class="col"><div class="text-muted">الفوارغ</div><div class="fs-4 num" id="tare">0.000</div></div>
-        <div class="col"><div class="text-muted">الصافي</div><div class="big-net text-success" id="net">0.000</div></div>
+        <div class="col-5"><div class="mini-lcd tare"><div class="mini-cap">TARE · الفوارغ</div><div id="tare" class="mini-seg"></div><span class="mini-unit">kg</span></div></div>
+        <div class="col-7"><div class="mini-lcd net"><div class="mini-cap">NET · الصافي</div><div id="net" class="mini-seg"></div><span class="mini-unit">kg</span></div></div>
       </div>
       <button id="btnSave" class="btn btn-success btn-xl w-100 mt-3" disabled>حفظ وطباعة الستيكر</button>
       <div id="conesWarn" class="mt-2"></div>
@@ -75,7 +80,7 @@ require __DIR__ . '/inc/header.php';
       <div class="small text-muted mt-2" dir="rtl">اختصارات: <kbd>Enter</kbd> حفظ وطباعة — <kbd>F2</kbd> نفس الوزن — <kbd>F4</kbd> طباعة آخر كرتونة — <kbd>↑</kbd>/<kbd>↓</kbd> عدد الكونات</div>
     </div>
   </div>
-  <div class="col-xl-7">
+  <div class="col-xl-6">
     <div class="card p-3 mb-3">
       <div class="mode-switch mb-3" id="modeSwitch" role="group" aria-label="نوع الإنتاج">
         <button type="button" data-mode="0" class="active"><b>نظامي</b><small><?= (int)setting('default_cones', '6') ?> كونات ثابتة</small></button>
@@ -95,26 +100,26 @@ require __DIR__ . '/inc/header.php';
     </div>
     <div class="wh-card mb-3" id="warehouse" data-wh="<?= e(json_encode($stats['warehouse'], JSON_UNESCAPED_UNICODE)) ?>"></div>
     <div class="card p-3 mb-3">
-      <div class="d-flex justify-content-between"><h6>ملخص النهارده</h6><span class="text-muted small">آخر ساعة: <b id="hourN"><?= (int)$stats['hour']['n'] ?></b> كرتونة — <b class="num" id="hourNet"><?= fmt_qty($stats['hour']['net'], 1) ?></b> كيلو</span></div>
+      <div class="d-flex justify-content-between"><h6>ملخص النهارده</h6><span class="text-muted small">آخر ساعة: <b id="hourN"><?= e(count_text((int)$stats['hour']['cartons'], (int)$stats['hour']['sacks'])) ?></b> — <b class="num" id="hourNet"><?= fmt_qty($stats['hour']['net'], 1) ?></b> كيلو</span></div>
       <table class="table table-sm mb-0" id="summary">
-        <thead><tr><th>النمرة</th><th>كراتين</th><th>كونات</th><th>صافي (كيلو)</th></tr></thead>
+        <thead><tr><th>النمرة</th><th>العدد</th><th>كونات</th><th>صافي (كيلو)</th></tr></thead>
         <tbody>
         <?php foreach ($stats['items'] as $r): ?>
-          <tr><td><?= e($r['code']) ?></td><td><?= (int)$r['n'] ?></td><td><?= (int)$r['cones'] ?></td><td class="num fw-bold"><?= fmt_qty($r['net'], 1) ?></td></tr>
+          <tr><td><?= e($r['code']) ?><?= $r['mixed'] ? ' <span class="badge bg-warning text-dark">متعدد</span>' : '' ?></td><td><?= (int)$r['n'] ?> <?= $r['sack'] ? 'شكارة' : 'كرتونة' ?></td><td><?= (int)$r['cones'] ?></td><td class="num fw-bold"><?= fmt_qty($r['net'], 1) ?></td></tr>
         <?php endforeach; ?>
-        <?php if (!$stats['items']): ?><tr><td colspan="4" class="text-muted text-center">لسه مفيش كراتين النهارده</td></tr><?php endif; ?>
+        <?php if (!$stats['items']): ?><tr><td colspan="4" class="text-muted text-center">لسه مفيش إنتاج النهارده</td></tr><?php endif; ?>
         </tbody>
       </table>
     </div>
     <div class="card p-3">
-      <div class="d-flex justify-content-between"><h6>آخر الكراتين النهارده</h6><span class="text-muted">الإجمالي: <b class="num" id="todayNet"><?= fmt_qty($todayTotal['net'], 1) ?></b> كيلو — <b id="todayN"><?= (int)$todayTotal['n'] ?></b> كرتونة</span></div>
+      <div class="d-flex justify-content-between"><h6>آخر الكراتين والشكاير النهارده</h6><span class="text-muted">الإجمالي: <b class="num" id="todayNet"><?= fmt_qty($todayTotal['net'], 1) ?></b> كيلو — <b id="todayN" data-c="<?= (int)$stats['total']['cartons'] ?>" data-s="<?= (int)$stats['total']['sacks'] ?>"><?= e(count_text((int)$stats['total']['cartons'], (int)$stats['total']['sacks'])) ?></b></span></div>
       <table class="table table-sm mb-0" id="recent">
         <thead><tr><th>الباركود</th><th>رقمها</th><th>النمرة</th><th>كونات</th><th>قائم</th><th>صافي</th><th>الوقت</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($recent as $r): ?>
           <tr class="<?= $r['status'] === 'void' ? 'text-decoration-line-through text-muted' : '' ?>"><td class="num"><?= e($r['serial']) ?></td>
             <td class="num fw-bold text-nowrap" dir="ltr"><?= $r['pallet_serial'] ? '<span class="pal-no">' . (int)$r['pallet_seq'] . '/' . (int)$r['pallet_cap'] . '</span> <span class="small text-muted">' . e($r['pallet_serial']) . '</span>' : '—' ?></td>
-            <td><?= e($r['code']) ?><?= $r['is_mixed'] ? ' <span class="badge bg-warning text-dark">متعدد</span>' : '' ?></td><td><?= (int)$r['cones_count'] ?></td>
+            <td><?= e($r['code']) ?><?= $r['sack'] ? ' <span class="badge bg-info text-dark">شكارة</span>' : '' ?><?= $r['is_mixed'] ? ' <span class="badge bg-warning text-dark">متعدد</span>' : '' ?></td><td><?= (int)$r['cones_count'] ?></td>
             <td class="num"><?= fmt_qty($r['gross'], 2) ?></td><td class="num fw-bold"><?= fmt_qty($r['net'], 2) ?></td><td><?= e(substr($r['created_at'], 11, 5)) ?></td>
             <td><button class="btn btn-sm btn-outline-secondary reprint" data-id="<?= $r['id'] ?>">طباعة</button></td></tr>
         <?php endforeach; ?>
@@ -154,5 +159,6 @@ require __DIR__ . '/inc/header.php';
     </div>
   </div></div>
 </div>
+<button type="button" id="focusBtn" class="btn btn-dark focus-btn no-print"></button>
 <iframe id="printFrame" style="position:absolute;width:0;height:0;border:0;left:-9999px"></iframe>
 <?php require __DIR__ . '/inc/footer.php';

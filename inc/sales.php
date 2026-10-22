@@ -45,6 +45,30 @@ function package_sale(int $pkgId): ?array
 }
 
 /** Validate a scanned carton for a sale or a return. Returns the package row with item info. */
+/** What an invoice / delivery note carries: cartons, sacks, kg, plus its customer and notes (a trip is paid by load and destination). */
+function invoice_load(int $invId): array
+{
+    $r = q("SELECT s.number, s.notes, p.name customer,
+              (SELECT COUNT(*) FROM sales_packages sp JOIN packages k ON k.id=sp.package_id LEFT JOIN items pi ON pi.id=k.pack_item_id
+                WHERE sp.invoice_id=s.id AND (pi.name IS NULL OR pi.name NOT LIKE '%شكار%')) cartons,
+              (SELECT COUNT(*) FROM sales_packages sp JOIN packages k ON k.id=sp.package_id JOIN items pi ON pi.id=k.pack_item_id
+                WHERE sp.invoice_id=s.id AND pi.name LIKE '%شكار%') sacks,
+              (SELECT COALESCE(SUM(qty),0) FROM sales_lines WHERE invoice_id=s.id) kg
+            FROM sales_invoices s JOIN parties p ON p.id=s.customer_id WHERE s.id=?", [$invId])->fetch();
+    return $r ?: ['number' => 0, 'notes' => '', 'customer' => '', 'cartons' => 0, 'sacks' => 0, 'kg' => 0];
+}
+
+/** "60 كرتونة + 5 شكارة — 1,998.0 كيلو" */
+function load_text(array $l): string
+{
+    $parts = [];
+    if ((int)$l['cartons']) $parts[] = (int)$l['cartons'] . ' كرتونة';
+    if ((int)$l['sacks']) $parts[] = (int)$l['sacks'] . ' شكارة';
+    $txt = implode(' + ', $parts);
+    if ((float)$l['kg'] > 0) $txt .= ($txt ? ' — ' : '') . fmt_qty($l['kg'], 1) . ' كيلو';
+    return $txt;
+}
+
 /** A scanned code is a pallet (P00012) rather than a carton serial. */
 function is_pallet_serial(string $s): bool
 {
@@ -141,9 +165,9 @@ function save_sale(array $h, array $pkgIds, array $prices, array $manual, int $u
 
         $num = (int)q('SELECT COALESCE(MAX(number),0)+1 FROM sales_invoices WHERE type=? FOR UPDATE', [$type])->fetchColumn();
         $clip = fn(string $k, int $max) => mb_substr(trim((string)($h[$k] ?? '')), 0, $max) ?: null;
-        q('INSERT INTO sales_invoices (type, kind, number, inv_date, customer_id, subtotal, discount, total, notes, driver_name, car_no, receiver, organizer, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        q('INSERT INTO sales_invoices (type, kind, number, inv_date, customer_id, subtotal, discount, total, notes, driver_name, car_no, receiver, contact_phone, organizer, user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
             [$type, $kind, $num, $h['inv_date'], $customer['id'], $subtotal, $discount, $total, trim((string)($h['notes'] ?? '')) ?: null,
-             $clip('driver_name', 100), $clip('car_no', 50), $clip('receiver', 150), $clip('organizer', 100), $userId]);
+             $clip('driver_name', 100), $clip('car_no', 50), $clip('receiver', 150), $clip('contact_phone', 40), $clip('organizer', 100), $userId]);
         $invId = (int)$pdo->lastInsertId();
         $sign = $type === 'sale' ? -1 : 1;   // stock out on sale, back in on return
         $moveDate = $h['inv_date'] . ' ' . date('H:i:s');

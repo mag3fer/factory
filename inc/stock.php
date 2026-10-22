@@ -197,3 +197,38 @@ function assign_pallet(int $pkgId, int $itemId, int $mixed = 0, bool $startNew =
     if ($full) q('UPDATE pallets SET full=1, closed_at=NOW() WHERE id=?', [$pl['id']]);
     return ['id' => (int)$pl['id'], 'serial' => $pl['serial'], 'seq' => $seq, 'count' => $count, 'capacity' => (int)$pl['capacity'], 'full' => $full, 'mixed' => (bool)$mixed];
 }
+
+/**
+ * Raw POY comes on pallets: a standard pallet (36 cones) and a bigger one (42 cones); a container is 44 pallets
+ * (38 standard + 6 big = 25,110 kg). Express a weight as pallets + loose cones so a sale or issue can be checked against the labels.
+ * $receipt = true tries the exact container split first.
+ */
+function pallet_text(float $kg, bool $receipt = false): string
+{
+    $palSmall = (float)setting('raw_pallet_kg', '558');
+    $palBig = (float)setting('raw_pallet_big_kg', '651');
+    $coneKg = (float)setting('raw_cone_kg', '15.5');
+    $palContainer = (int)setting('raw_container_pallets', '44');
+    $kg = abs($kg);
+    if ($kg < $coneKg / 2) return '';
+    if ($receipt) {
+        for ($b = 0; $b <= $palContainer; $b++) {
+            $a = $palContainer - $b;
+            if (abs($a * $palSmall + $b * $palBig - $kg) < 0.5) return "حاوية: $a بالتة عادية × " . fmt_qty($palSmall, 0) . " + $b كبيرة × " . fmt_qty($palBig, 0) . " ($palContainer بالتة)";
+        }
+    }
+    $best = null;   // fewest loose cones, then fewest big pallets
+    for ($b = 0; $b * $palBig <= $kg + 0.5 && $b <= 60; $b++) {
+        $a = (int)floor(($kg - $b * $palBig + 0.5) / $palSmall);
+        if ($a < 0) continue;
+        $rest = $kg - $a * $palSmall - $b * $palBig;
+        if ($best === null || $rest < $best[2] - 0.001) $best = [$a, $b, $rest];
+    }
+    [$a, $b, $rest] = $best;
+    $parts = [];
+    if ($a) $parts[] = "$a عادية";
+    if ($b) $parts[] = "$b كبيرة";
+    $cones = round($rest / $coneKg * 2) / 2;
+    $txt = implode(' + ', $parts) . ($cones > 0 ? ($parts ? ' + ' : '') . rtrim(rtrim(number_format($cones, 1), '0'), '.') . ' كونة' : '');
+    return ($rest > 0.5 ? '≈ ' : '') . $txt . (abs($rest) > 0.5 ? ' (تقريبي)' : '');
+}

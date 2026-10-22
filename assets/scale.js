@@ -81,14 +81,16 @@
   const USUAL = (() => { try { return JSON.parse(station.dataset.usual || '{}'); } catch (e) { return {}; } })();
   const MAX_KG = 150;
   let currentWarn = '';
+  let warnHard = false;   // hard = impossible reading (blocks until confirmed); soft = just looks unusual
   function sanity(g, net) {
+    warnHard = false;
     if (!g) return '';
-    if (g.value > MAX_KG) return `الوزن أكبر من سعة الميزان (${MAX_KG} كيلو) — اتأكد من القراءة`;
-    if (net <= 0) return 'الوزن القائم أقل من الفوارغ — اتأكد من نوع التعبئة وعدد الكونات';
+    if (g.value > MAX_KG) { warnHard = true; return `الوزن أكبر من سعة الميزان (${MAX_KG} كيلو) — اتأكد من القراءة`; }
+    if (net <= 0) { warnHard = true; return 'الوزن القائم أقل من الفوارغ — اتأكد من نوع التعبئة وعدد الكونات'; }
     const n = parseInt($('conesCount').value || '0', 10), u = USUAL[$('finished').value];
     if (n > 0 && u) {
       const pc = net / n;
-      if (Math.abs(pc - u) / u > 0.25) return `الكونة طالعة ${pc.toFixed(2)} كيلو والمعتاد للنمرة دي حوالي ${u.toFixed(2)} — اتأكد من عدد الكونات والنمرة`;
+      if (Math.abs(pc - u) / u > 0.25) return `الكونة طالعة ${pc.toFixed(2)} كيلو (عدد الكونات المسجّل: ${n}) والمعتاد للنمرة دي حوالي ${u.toFixed(2)} — اتأكد من عدد الكونات والنمرة`;
     }
     return '';
   }
@@ -136,10 +138,10 @@
     conesCheck();
     showPallet();
     const tare = tareOf();
-    $('tare').textContent = tare.toFixed(3);
+    drawMini('tare', tare);
     const g = currentGross();
     const net = g ? Math.round((g.value - tare) * 1000) / 1000 : 0;
-    $('net').textContent = net.toFixed(3);
+    drawMini('net', Math.max(0, net));
     showTarget(g);
     currentWarn = sanity(g, net);
     $('warn').innerHTML = currentWarn ? `<div class="alert alert-warning py-2 mb-0">⚠ ${currentWarn}</div>` : '';
@@ -159,7 +161,7 @@
   }
   function sameWeight() {
     if ($('btnSameWeight').classList.contains('d-none')) return;
-    if (!confirm(`متأكد إن فيه كرتونة جديدة على الميزان ووزنها ${liveGross.toFixed(2)} كيلو؟`)) return;
+    if (!confirm(`متأكد إن فيه ${unitNoun()} جديدة على الميزان ووزنها ${liveGross.toFixed(2)} كيلو؟`)) return;
     usedValue = null; fresh = true; recalc();
   }
   $('btnSameWeight').addEventListener('click', sameWeight);
@@ -208,6 +210,38 @@
     } catch (e) {}
   }
 
+  // ---------- seven-segment readouts (gross, tare, net) ----------
+  const SEG = { a: '14,4 50,4 56,10 50,16 14,16 8,10', g: '14,48 50,48 56,54 50,60 14,60 8,54', d: '14,92 50,92 56,98 50,104 14,104 8,98',
+    f: '6,12 12,18 12,46 6,52 0,46 0,18', b: '58,12 64,18 64,46 58,52 52,46 52,18', e: '6,56 12,62 12,90 6,96 0,90 0,62', c: '58,56 64,62 64,90 58,96 52,90 52,62' };
+  const DIGITS = { 0: 'abcdef', 1: 'bc', 2: 'abdeg', 3: 'abcdg', 4: 'bcfg', 5: 'acdfg', 6: 'acdefg', 7: 'abc', 8: 'abcdefg', 9: 'abcdfg', '-': 'g', ' ': '' };
+  const PITCH = 80;
+  // value -> <svg> with unlit "8" ghosts behind the lit segments, a slanted LCD look and a decimal point
+  function segSvg(value, intN, decN) {
+    const max = Math.pow(10, intN) - Math.pow(10, -decN);
+    const t = Math.min(max, Math.max(0, value)).toFixed(decN);
+    const [ip, fp] = t.split('.');
+    const chars = (ip.padStart(intN, ' ') + fp).split('');
+    const gap = 16, w = chars.length * PITCH + gap + 12;
+    let h = `<svg viewBox="-6 -4 ${w} 116" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><g transform="skewX(-7) translate(14,0)">`;
+    chars.forEach((c, i) => {
+      const on = DIGITS[c] || '';
+      h += `<g transform="translate(${i * PITCH + (i >= intN ? gap : 0)},0)">` + Object.keys(SEG).map(k => `<polygon points="${SEG[k]}" class="${on.includes(k) ? 'on' : 'off'}"/>`).join('') + '</g>';
+    });
+    h += `<circle cx="${(intN - 1) * PITCH + 64 + gap / 2 + 3}" cy="100" r="6.5" class="on"/></g></svg>`;
+    return h;
+  }
+  // 30-step load bar like the one on real indicators (full scale = MAX_KG)
+  const BAR_N = 30;
+  (() => { const bar = $('sdBar'); if (bar) bar.innerHTML = '<i></i>'.repeat(BAR_N); })();
+  function drawGross(v) {
+    $('display').innerHTML = segSvg(v, 3, 2);
+    const lit = Math.round(Math.min(1, v / MAX_KG) * BAR_N);
+    const bar = $('sdBar');
+    if (bar) [...bar.children].forEach((el, i) => el.classList.toggle('on', i < lit));
+  }
+  function drawMini(id, v) { $(id).innerHTML = segSvg(v, 3, 3); }
+  drawGross(0);
+
   // the display counts up/down to the new weight like a real indicator settling
   let shown = 0, rollRaf = 0;
   function rollTo(target) {
@@ -216,7 +250,7 @@
     const step = now => {
       const k = Math.min(1, (now - t0) / dur), ease = 1 - Math.pow(1 - k, 3);
       shown = k >= 1 ? target : from + (target - from) * ease;
-      $('display').textContent = shown.toFixed(2);
+      drawGross(shown);
       if (k < 1) rollRaf = requestAnimationFrame(step);
     };
     rollRaf = requestAnimationFrame(step);
@@ -238,6 +272,9 @@
     d.classList.remove('offline');
     $('ledStable').classList.toggle('on', r.value >= 0.1);
     $('ledZero').classList.toggle('on', r.value < 0.1);
+    $('annStable').classList.toggle('on', r.value >= 0.1 && !r.unstableFlag);   // annunciators on the LCD itself
+    $('annZero').classList.toggle('on', r.value < 0.1);
+    $('annGross').classList.toggle('on', r.value >= 0.1);
     $('plate').classList.toggle('loaded', r.value >= 0.1);
     $('lastAt').textContent = 'آخر وزن وصل الساعة ' + new Date().toLocaleTimeString('ar-EG');
     if (fresh && !wasFresh) { awaitingNew = false; d.classList.remove('bump'); void d.offsetWidth; d.classList.add('bump'); beep(); }
@@ -378,6 +415,9 @@
   const PALLETS = (() => { try { return JSON.parse(station.dataset.pallets || '{}'); } catch (e) { return {}; } })();
   const PALLET_SIZE = parseInt(station.dataset.palletSize || '20', 10);
   const modeName = () => mixed ? 'متعدد' : 'نظامي';
+  // wording follows the packing chosen: شكارة vs كرتونة ('def' = with the article)
+  const isSack = () => packName().startsWith('شكارة');
+  const unitNoun = (a) => (a === 'def' ? 'ال' : '') + (isSack() ? 'شكارة' : 'كرتونة');
   // pallets are per count + type (نظامي/متعدد) + packing (كرتونة 20 / شكارة 15)
   const palKey = () => $('finished').value + ':' + mixed + ':' + ($('packing').value || 0);
   const palletSizeNow = () => parseInt($('packing').selectedOptions[0]?.dataset.pallet || PALLET_SIZE, 10) || PALLET_SIZE;
@@ -390,8 +430,8 @@
     box.classList.toggle('mixed', !!mixed);
     const tag = `<span class="badge ${mixed ? 'bg-warning text-dark' : 'bg-primary'} me-1">${modeName()}</span>` + (packName() ? `<span class="badge bg-secondary me-1">${esc(packName())}</span>` : '');
     box.innerHTML = p
-      ? `<i class="bi bi-boxes"></i> ${tag}بالتة <b dir="ltr">${esc(p.serial)}</b> — فيها <b>${p.count}</b> من ${p.capacity} — الكرتونة الجاية <b>${p.count + 1}</b>`
-      : `<i class="bi bi-boxes"></i> ${tag}هتبدأ بالتة ${modeName()} جديدة — الكرتونة الجاية <b>1</b> من ${palletSizeNow()}`;
+      ? `<i class="bi bi-boxes"></i> ${tag}بالتة <b dir="ltr">${esc(p.serial)}</b> — فيها <b>${p.count}</b> من ${p.capacity} — ${unitNoun('def')} الجاية <b>${p.count + 1}</b>`
+      : `<i class="bi bi-boxes"></i> ${tag}هتبدأ بالتة ${modeName()} جديدة — ${unitNoun('def')} الجاية <b>1</b> من ${palletSizeNow()}`;
   }
 
   // ---------- نظامي / متعدد ----------
@@ -426,7 +466,7 @@
     if (!p || p.count < 1 || p.in_stock < 1 || pendingNew[k] || decided[p.id] === todayStr()) return;
     pcModal = pcModal || new bootstrap.Modal(box);
     const fin = $('finished').selectedOptions[0].textContent.split(' — ')[0];
-    $('pcBody').innerHTML = `نمرة <b>${esc(fin)}</b> — <b>${modeName()}</b> — <b>${esc(packName())}</b><br>البالتة <b dir="ltr">${esc(p.serial)}</b> وصلت <b>${p.count}</b> من ${p.capacity}، وفيها <b>${p.in_stock}</b> كرتونة لسه في المخزن.<br>تكمّلها ولا تبدأ بالتة جديدة؟`;
+    $('pcBody').innerHTML = `نمرة <b>${esc(fin)}</b> — <b>${modeName()}</b> — <b>${esc(packName())}</b><br>البالتة <b dir="ltr">${esc(p.serial)}</b> وصلت <b>${p.count}</b> من ${p.capacity}، وفيها <b>${p.in_stock}</b> ${unitNoun()} لسه في المخزن.<br>تكمّلها ولا تبدأ بالتة جديدة؟`;
     pcCtx = { k, id: p.id };
     pcModal.show();
   }
@@ -450,9 +490,11 @@
       if (!confirm(`عدد الكونات ${nCones} مش ${STD_CONES} (الطبيعي). متأكد؟`)) return;
       ackCones = nCones;
     }
-    if (currentWarn) {
+    // نظامي: Enter saves and prints straight away. An odd-looking (but possible) weight only shows the yellow
+    // banner; the question is asked just for impossible readings, and always in متعدد.
+    if (currentWarn && (warnHard || mixed)) {
       beep(400, 200);
-      if (!confirm(currentWarn + '\n\nتحفظ الكرتونة برضه؟')) return;
+      if (!confirm(currentWarn + `\n\nتحفظ ${unitNoun('def')} برضه؟`)) return;
     }
     saving = true;
     $('btnSave').disabled = true;
@@ -466,8 +508,8 @@
       if (!r.ok) { showMsg(r.error, 'danger'); return; }
       const pal = r.pallet;
       showMsg(`تم الحفظ — الباركود <b>${r.serial}</b> — الصافي <b>${Number(r.net).toFixed(3)}</b> كيلو${mixed ? ' <span class="badge bg-warning text-dark">متعدد</span>' : ''}`
-        + (pal ? `<div class="saved-no">كرتونة رقم <b>${pal.seq}</b> من ${pal.capacity} <small dir="ltr">— بالتة ${pal.serial}</small></div>` : '')
-        + (pal?.full ? '<br><b>🎉 البالتة اتملت (الكرتونة الأخيرة اتطبعت زي أي كرتونة)</b>' : ''), 'success');
+        + (pal ? `<div class="saved-no">${unitNoun()} رقم <b>${pal.seq}</b> من ${pal.capacity} <small dir="ltr">— بالتة ${pal.serial}</small></div>` : '')
+        + (pal?.full ? `<br><b>🎉 البالتة اتملت (${unitNoun('def')} الأخيرة اتطبعت زي أي ${unitNoun()})</b>` : ''), 'success');
       beep(1200, 90, 2);
       printLabel(r.id);
       if (pal) {
@@ -483,7 +525,7 @@
       $('manualGross').value = '';
       if (g.source === 'scale') { usedValue = g.value; fresh = false; }
     } catch (e) {
-      showMsg('مفيش اتصال بالسيرفر — الكرتونة ما اتسجلتش. جرّب تاني.', 'danger');
+      showMsg(`مفيش اتصال بالسيرفر — ${unitNoun('def')} ما اتسجلتش. جرّب تاني.`, 'danger');
     } finally {
       saving = false;
       document.activeElement?.blur();   // so the next Enter isn't swallowed by a focused dropdown
@@ -496,11 +538,11 @@
     const tr = document.createElement('tr');
     const t = new Date();
     const pal = r.pallet ? `<span class="pal-no">${r.pallet.seq}/${r.pallet.capacity}</span> <span class="small text-muted">${esc(r.pallet.serial)}</span>` : '—';
-    tr.innerHTML = `<td class="num">${r.serial}</td><td class="num fw-bold text-nowrap" dir="ltr">${pal}</td><td>${fin}${mixed ? ' <span class="badge bg-warning text-dark">متعدد</span>' : ''}</td><td>${$('conesCount').value}</td><td class="num">${gross.toFixed(2)}</td>
+    tr.innerHTML = `<td class="num">${r.serial}</td><td class="num fw-bold text-nowrap" dir="ltr">${pal}</td><td>${fin}${isSack() ? ' <span class="badge bg-info text-dark">شكارة</span>' : ''}${mixed ? ' <span class="badge bg-warning text-dark">متعدد</span>' : ''}</td><td>${$('conesCount').value}</td><td class="num">${gross.toFixed(2)}</td>
       <td class="num fw-bold">${Number(r.net).toFixed(2)}</td><td>${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}</td>
       <td><button class="btn btn-sm btn-outline-secondary reprint" data-id="${r.id}">طباعة</button></td>`;
     $('recent').querySelector('tbody').prepend(tr);
-    $('todayN').textContent = parseInt($('todayN').textContent, 10) + 1;
+    setToday(todayC + (isSack() ? 0 : 1), todayS + (isSack() ? 1 : 0));
     $('todayNet').textContent = (parseFloat($('todayNet').textContent.replace(/,/g, '')) + Number(r.net)).toFixed(1);
   }
 
@@ -513,11 +555,12 @@
     if (!box || !w) return;
     const maxKg = Math.max(...w.items.map(i => i.kg), 1);
     box.innerHTML = `
-      <div class="wh-head"><span><i class="bi bi-boxes"></i> إجمالي المخزن حتى الآن</span><small><i class="bi bi-broadcast"></i> يتحدّث مع كل كرتونة</small></div>
+      <div class="wh-head"><span><i class="bi bi-boxes"></i> إجمالي المخزن حتى الآن <span class="wh-mini" dir="ltr">· ${nf(w.total.kg)} kg</span></span><span class="wh-right"><small><i class="bi bi-broadcast"></i> يتحدّث مع كل كرتونة</small><button type="button" class="wh-toggle" id="whToggle"></button></span></div>
       <div class="wh-main">
         <div class="wh-kg" dir="ltr">${nf(w.total.kg)}<small>كيلو صافي</small></div>
         <div class="wh-kpis">
-          <div><b>${nf(w.total.n, 0)}</b><span>كرتونة</span></div>
+          <div><b>${nf(w.total.cartons ?? w.total.n, 0)}</b><span>كرتونة</span></div>
+          ${w.total.sacks ? `<div><b>${nf(w.total.sacks, 0)}</b><span>شكارة</span></div>` : ''}
           <div><b>${nf(w.total.pallets, 0)}</b><span>بالتة</span></div>
           <div><b>${nf(w.total.cones, 0)}</b><span>كونة</span></div>
         </div>
@@ -529,8 +572,64 @@
           <div class="wh-num" dir="ltr">${nf(i.kg)} kg</div>
           <div class="wh-sub">${i.n} ${i.sack ? 'شكارة' : 'كرتونة'} · ${i.pallets} بالتة${i.open ? ` · الجارية ${i.open}/${i.cap || PALLET_SIZE}` : ''}</div>
         </div>`).join('') : '<div class="wh-empty">المخزن فاضي حالياً</div>'}</div>`;
+    whApply();
   }
+  // scale-only view (no sidebar / top bar / stock / summary): remembered per browser
+  function focusApply(on) {
+    document.getElementById('app')?.classList.toggle('scale-focus', on);
+    if (on) focusStrip();
+    const b = $('focusBtn');
+    if (b) b.innerHTML = on ? '<i class="bi bi-fullscreen-exit"></i> رجوع للصفحة الكاملة' : '<i class="bi bi-arrows-fullscreen"></i> الميزان بس';
+  }
+  function focusStrip() {
+    const el = $('focusStrip');
+    if (!el) return;
+    const parts = ($('finished').selectedOptions[0]?.textContent || '').split(' — ');
+    const code = ($('finished').value ? parts[0] : '').trim() || '—';
+    const name = parts.slice(1).join(' — ').trim();
+    const k = palKey(), p = pendingNew[k] ? null : PALLETS[k];
+    const pal = $('finished').value
+      ? (p ? `<span class="fs-state cont">تكميل بالتة</span> <b dir="ltr">${esc(p.serial)}</b> — فيها <b>${p.count}</b> من ${p.capacity} — ${unitNoun('def')} الجاية <b>${p.count + 1}</b>`
+           : `<span class="fs-state new">بالتة ${esc(modeName())} جديدة</span> ${unitNoun('def')} الجاية <b>1</b> من ${palletSizeNow()}`)
+      : '';
+    const tare = ($('tareDetail')?.textContent || '').trim();
+    el.innerHTML = `<div class="fs-main"><span class="fs-code">${esc(code)}</span>${name ? `<span class="fs-name">${esc(name)}</span>` : ''}</div>`
+      + `<div class="fs-pills"><span class="fs-pill ${mixed ? 'mix' : ''}">${esc(modeName())}</span><span class="fs-pill">${esc(packName())}</span><span class="fs-pill">${esc($('conesCount').value || 0)} كونة</span></div>`
+      + (pal ? `<div class="fs-pal"><i class="bi bi-boxes"></i> ${pal}</div>` : '')
+      + (tare ? `<div class="fs-tare">${esc(tare)}</div>` : '');
+  }
+  setInterval(() => { if (document.getElementById('app')?.classList.contains('scale-focus')) focusStrip(); }, 400);
+  (function () {
+    let on = false;
+    try { on = localStorage.getItem('scaleFocus') === '1'; } catch (e) {}
+    focusApply(on);
+    $('focusBtn')?.addEventListener('click', () => {
+      on = !on;
+      try { localStorage.setItem('scaleFocus', on ? '1' : '0'); } catch (e) {}
+      focusApply(on);
+      $('focusBtn').blur();   // so a later Enter saves instead of re-clicking this button
+    });
+  })();
+  function whApply() {
+    const box = $('warehouse'), t = $('whToggle');
+    if (!box) return;
+    let hid = false;
+    try { hid = localStorage.getItem('whHidden') === '1'; } catch (e) {}
+    box.classList.toggle('wh-collapsed', hid);
+    if (t) t.innerHTML = hid ? '<i class="bi bi-chevron-down"></i> إظهار' : '<i class="bi bi-chevron-up"></i> إخفاء';
+  }
+  $('warehouse')?.addEventListener('click', e => {
+    if (!e.target.closest('#whToggle')) return;
+    let hid = false;
+    try { hid = localStorage.getItem('whHidden') === '1'; localStorage.setItem('whHidden', hid ? '0' : '1'); } catch (er) { $('warehouse').classList.toggle('wh-collapsed'); return whApply(); }
+    whApply();
+  });
   try { renderWarehouse(JSON.parse($('warehouse')?.dataset.wh || 'null')); } catch (e) {}
+
+  const countText = (c, s) => [c > 0 || !s ? `${c} كرتونة` : '', s > 0 ? `${s} شكارة` : ''].filter(Boolean).join(' + ');
+  let todayC = 0, todayS = 0;
+  function setToday(c, s) { todayC = Number(c) || 0; todayS = Number(s) || 0; $('todayN').textContent = countText(todayC, todayS); }
+  setToday($('todayN').dataset.c, $('todayN').dataset.s);
 
   async function refreshStats() {
     try {
@@ -538,11 +637,11 @@
       if (!r.ok) return;
       renderWarehouse(r.warehouse);
       $('summary').querySelector('tbody').innerHTML = r.items.length
-        ? r.items.map(i => `<tr><td>${esc(i.code)}</td><td>${i.n}</td><td>${i.cones}</td><td class="num fw-bold">${Number(i.net).toFixed(1)}</td></tr>`).join('')
-        : '<tr><td colspan="4" class="text-muted text-center">لسه مفيش كراتين النهارده</td></tr>';
-      $('hourN').textContent = r.hour.n;
+        ? r.items.map(i => `<tr><td>${esc(i.code)}${Number(i.mixed) ? ' <span class="badge bg-warning text-dark">متعدد</span>' : ''}</td><td>${i.n} ${Number(i.sack) ? 'شكارة' : 'كرتونة'}</td><td>${i.cones}</td><td class="num fw-bold">${Number(i.net).toFixed(1)}</td></tr>`).join('')
+        : '<tr><td colspan="4" class="text-muted text-center">لسه مفيش إنتاج النهارده</td></tr>';
+      $('hourN').textContent = countText(r.hour.cartons, r.hour.sacks);
       $('hourNet').textContent = Number(r.hour.net).toFixed(1);
-      $('todayN').textContent = r.total.n;
+      setToday(r.total.cartons, r.total.sacks);
       $('todayNet').textContent = Number(r.total.net).toFixed(1);
     } catch (e) {}
   }

@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'void'
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'meta') {
     csrf_check();
     $clip = fn(string $k, int $max) => mb_substr(trim((string)($_POST[$k] ?? '')), 0, $max) ?: null;
-    q('UPDATE sales_invoices SET receiver=?, driver_name=?, car_no=?, organizer=?, notes=? WHERE id=?',
-        [$clip('receiver', 150), $clip('driver_name', 100), $clip('car_no', 50), $clip('organizer', 100), $clip('notes', 255), $id]);
+    q('UPDATE sales_invoices SET receiver=?, contact_phone=?, driver_name=?, car_no=?, organizer=?, notes=? WHERE id=?',
+        [$clip('receiver', 150), $clip('contact_phone', 40), $clip('driver_name', 100), $clip('car_no', 50), $clip('organizer', 100), $clip('notes', 255), $id]);
     flash('تم حفظ الجهة المستلمة والسائق والسيارة');
     redirect("sale_view.php?id=$id");
 }
@@ -119,6 +119,16 @@ require __DIR__ . '/inc/header.php';
 .sheet table.items th { background: #d0d3d8; border: 1px solid #333; padding: .3rem .5rem; text-align: center; }
 .sheet table.items td { border: 1px solid #333; padding: .3rem .5rem; text-align: center; }
 .sheet .totals td { border: 0; font-weight: 700; }
+.sheet table.items tr.grand td { border: 2px solid #000; background: #e4e6ea; font-weight: 800; font-size: 1.05em; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.card.sheet { border: 1px solid #cfd3d9; }
+.sheet .page1 { display: flex; flex-direction: column; }
+.sheet .sheet-foot { margin-top: auto; padding-top: .7rem; border-top: 1px solid #555; text-align: center; }
+.sheet .sheet-foot .sf-name { font-size: 1.35rem; font-weight: 800; letter-spacing: 6px; color: #111; text-transform: uppercase; }
+.sheet .sheet-foot .sf-sub { font-size: .85rem; font-weight: 600; color: #333; margin-top: .15rem; }
+.sheet .contact-box { margin: 2.5rem auto 1.8rem; width: 70%; border: 2px solid #000; border-radius: 8px; padding: .6rem 1rem; text-align: center; }
+.sheet .contact-box .ct-title { font-size: 1.05rem; font-weight: 700; }
+.sheet .contact-box .ct-num { font-size: 1.9rem; font-weight: 800; letter-spacing: 2px; margin-top: .1rem; }
+.sheet table.items tr.spacer td { border: 0; border-left: 1px solid #333; border-right: 1px solid #333; height: 34px; padding: 0; }
 .sheet-sign { display: flex; justify-content: space-between; margin-top: 7rem; padding: 0 2rem; }
 .sheet-sign div { text-align: center; min-width: 200px; }
 .sheet-sign .line { border-top: 1px solid #333; margin-top: 3rem; padding-top: .2rem; }
@@ -126,7 +136,7 @@ require __DIR__ . '/inc/header.php';
 .sheet.hide-cones .f-cones, .sheet.hide-cartons .f-cartons, .sheet.hide-receiver .f-receiver, .sheet.hide-driver .f-driver, .sheet.hide-warehouse .f-warehouse,
 .sheet.hide-notes .f-notes, .sheet.hide-balance .f-balance, .sheet.hide-sign_org .f-sign_org, .sheet.hide-sign_rec .f-sign_rec, .sheet.hide-footer .f-footer { display: none; }
 @page { size: A4; margin: 0; }   /* margin 0 removes the browser's URL / page-number header and footer */
-@media print { body { margin: 0; color: #000 !important; } .sheet, .sheet * { color: #000 !important; opacity: 1 !important; } .sheet { font-weight: 600; } .sheet .lbl { font-weight: 600; } .sheet b, .sheet th, .sheet .co { font-weight: 800; } .inv { max-width: none; } .card { box-shadow: none; } .card.sheet { padding: 16mm 14mm !important; } .sheet table.items th { background: #d0d3d8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .sheet-title span { background: #d0d3d8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .cartons-page { display: none; page-break-before: always; } body.with-cartons .cartons-page { display: block; } }
+@media print { .sheet .page1 { min-height: 254mm; } body { margin: 0; color: #000 !important; } .sheet, .sheet * { color: #000 !important; opacity: 1 !important; } .sheet { font-weight: 600; } .sheet .lbl { font-weight: 600; } .sheet b, .sheet th, .sheet .co { font-weight: 800; } .inv { max-width: none; } .card { box-shadow: none; } .card.sheet { padding: 12mm 12mm !important; margin: 7mm !important; box-sizing: border-box; min-height: 281mm; border: 1px solid #444 !important; box-shadow: inset 0 0 0 1.5mm #fff, inset 0 0 0 1.9mm #888 !important; border-radius: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .sheet table.items th { background: #d0d3d8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .sheet-title span { background: #d0d3d8 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .cartons-page { display: none; page-break-before: always; } body.with-cartons .cartons-page { display: block; } }
 </style>
 <div class="inv">
   <div class="page-head no-print">
@@ -152,6 +162,7 @@ require __DIR__ . '/inc/header.php';
     <form method="post" class="row g-2 mt-1">
       <?= csrf_field() ?><input type="hidden" name="id" value="<?= $id ?>"><input type="hidden" name="action" value="meta">
       <div class="col-md-4"><label class="form-label">الجهة المستلمة</label><input name="receiver" class="form-control" maxlength="150" value="<?= e($inv['receiver'] ?? '') ?>" placeholder="مثال: مصنع الكوثر - العاشر"></div>
+      <div class="col-md-4"><label class="form-label">هاتف مندوب الاستلام (مش تبعنا — للسائق)</label><input name="contact_phone" class="form-control num" dir="ltr" maxlength="40" value="<?= e($inv['contact_phone'] ?? '') ?>"></div>
       <div class="col-md-4"><label class="form-label">اسم السائق</label><input name="driver_name" class="form-control" maxlength="100" value="<?= e($inv['driver_name'] ?? '') ?>"></div>
       <div class="col-md-4"><label class="form-label">رقم السيارة</label><input name="car_no" class="form-control" maxlength="50" value="<?= e($inv['car_no'] ?? '') ?>"></div>
       <div class="col-md-4"><label class="form-label">المنظم (الاسم تحت «المنظم»)</label><input name="organizer" class="form-control" maxlength="100" value="<?= e($inv['organizer'] ?? '') ?>" placeholder="لو فاضي بيتسيب فاضي"></div>
@@ -232,6 +243,7 @@ require __DIR__ . '/inc/header.php';
   <?php if (isset($_GET['new'])): ?><div class="alert alert-success no-print"><i class="bi bi-check-circle"></i> تم حفظ <?= e($title) ?> رقم <?= (int)$inv['number'] ?> بنجاح</div><?php endif; ?>
   <div class="card p-4 sheet <?= $hideClasses ?>" id="sheet">
     <?php if ($inv['voided']): ?><div class="stamp-void">ملغي</div><?php endif; ?>
+    <div class="page1">
     <div class="sheet-head">
       <div class="sheet-co"><div class="co"><?= e(setting('company_name')) ?></div><div><?= e(setting('company_address')) ?></div>
         <div class="num"><?= e(setting('company_phone1')) ?></div><div class="num"><?= e(setting('company_phone2')) ?></div></div>
@@ -257,8 +269,12 @@ require __DIR__ . '/inc/header.php';
           <td class="num"><?= fmt_qty($l['qty'], $l['unit'] === 'kg' ? 2 : 0) ?></td><td><?= UNITS[$l['unit']] ?></td>
           <?php if (!$isDelivery): ?><td class="num"><?= fmt_qty($l['price'], 2) ?></td><td class="num fw-bold"><?= fmt_qty($l['amount'], 2) ?></td><?php endif; ?></tr>
       <?php endforeach; ?>
-      <tr class="totals"><td colspan="2" class="text-start">الإجمالي</td><td class="f-cartons"><?= $totalCartons ?: '' ?></td><td class="f-cones"><?= $totalCones ?: '' ?></td><td class="num"><?= fmt_qty($totalKg, 2) ?></td><td><?= $totalKg > 0 ? 'كيلو' : '' ?></td>
+      <?php $showGrand = count($lines) > 1 || (!$isDelivery && $inv['discount'] > 0); // one line only: the total would just repeat it ?>
+      <?php if ($showGrand): ?>
+      <tr class="spacer"><td colspan="8"></td></tr>
+      <tr class="totals grand"><td colspan="2" class="text-start">الإجمالي</td><td class="f-cartons"><?= $totalCartons ?: '' ?></td><td class="f-cones"><?= $totalCones ?: '' ?></td><td class="num"><?= fmt_qty($totalKg, 2) ?></td><td><?= $totalKg > 0 ? 'كيلو' : '' ?></td>
         <?php if (!$isDelivery): ?><td></td><td class="num"><?= fmt_qty($inv['subtotal'], 2) ?></td><?php endif; ?></tr>
+      <?php endif; ?>
       <?php if (!$isDelivery && $inv['discount'] > 0): ?><tr class="totals"><td colspan="7" class="text-start">خصم</td><td class="num">- <?= fmt_qty($inv['discount'], 2) ?></td></tr><?php endif; ?>
       <?php if (!$isDelivery): ?><tr class="totals"><td colspan="7" class="text-start">الصافي</td><td class="num fs-5"><?= fmt_qty($inv['total'], 2) ?></td></tr><?php endif; ?>
       <?php if (!$isDelivery && $paidHere > 0): ?><tr class="totals"><td colspan="7" class="text-start"><?= $isSale ? 'المدفوع مع الفاتورة' : 'اترجع للعميل' ?></td><td class="num"><?= fmt_qty($paidHere, 2) ?></td></tr><?php endif; ?>
@@ -270,7 +286,14 @@ require __DIR__ . '/inc/header.php';
       <div class="f-sign_org">المنظم<div class="line"><?= e($inv['organizer'] ?? '') ?: '&nbsp;' ?></div></div>
       <div class="f-sign_rec">اسم وتوقيع المستلم<div class="line">&nbsp;</div></div>
     </div>
-    <div class="text-muted text-center mt-3 f-footer" dir="ltr"><?= e(setting('company_name')) ?></div>
+    <?php if (!empty($inv['contact_phone'])): ?>
+    <div class="contact-box"><div class="ct-title">للتواصل مع مندوب الاستلام (تابع للجهة المستلمة)</div><div class="ct-num num" dir="ltr"><?= e($inv['contact_phone']) ?></div></div>
+    <?php endif; ?>
+    <div class="sheet-foot f-footer" dir="ltr">
+      <div class="sf-name"><?= e(setting('company_name')) ?></div>
+      <div class="sf-sub"><?= e(trim(setting('company_address') . '  |  ' . setting('company_phone1') . '  -  ' . setting('company_phone2'), ' |-')) ?></div>
+    </div>
+    </div>
     <?php if ($cartons): ?>
       <details class="cartons-page mt-4" id="cartonsBox">
       <summary class="fw-bold" style="cursor:pointer">بيان <?= $packWord ?> (<?= count($cartons) ?>) — إجمالي الصافي <span class="num"><?= fmt_qty(array_sum(array_column($cartons, 'net')), 3) ?></span> كيلو <span class="text-muted small no-print">(اضغط للعرض)</span></summary>
