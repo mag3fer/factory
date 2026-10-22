@@ -49,7 +49,8 @@ $warnP = (float)setting('target_warn_pct', '6');
 $qual = q("SELECT COUNT(*) n, COALESCE(SUM(gross),0) g, COALESCE(SUM(cones_count),0) c,
              COALESCE(SUM(ABS(gross - cones_count*?) / (cones_count*?) * 100 <= ?),0) ok,
              COALESCE(SUM(ABS(gross - cones_count*?) / (cones_count*?) * 100 > ? AND ABS(gross - cones_count*?) / (cones_count*?) * 100 <= ?),0) warn
-           FROM packages WHERE status<>'void' AND is_mixed=0 AND cones_count>0 AND created_at >= ?", [$T, $T, $okP, $T, $T, $okP, $T, $T, $warnP, $monthStart])->fetch();
+           FROM packages p LEFT JOIN items pi ON pi.id=p.pack_item_id
+           WHERE p.status<>'void' AND p.is_mixed=0 AND p.cones_count>0 AND (pi.name IS NULL OR pi.name NOT LIKE '%شكار%') AND p.created_at >= ?", [$T, $T, $okP, $T, $T, $okP, $T, $T, $warnP, $monthStart])->fetch();
 $qN = (int)$qual['n'];
 $qAvg = $qual['c'] > 0 ? (float)$qual['g'] / (float)$qual['c'] : 0;
 $qOkPct = $qN ? round($qual['ok'] / $qN * 100) : 0;
@@ -163,45 +164,46 @@ $ring = function (float $p, string $color, string $label, string $sub = '') {
           <div class="d-sub"><?= e(setting('company_address')) ?></div>
         </div>
       </div>
-      <div class="d-hero-clock"><div id="dClock" class="num">--:--:--</div><div id="dDate"></div></div>
+      <div class="d-hero-clock"><div id="dClock" class="num" dir="ltr">--:--:--</div><div id="dDate"></div></div>
     </div>
     <div class="d-hero-pills">
       <span class="pill <?= $minsSince !== null && $minsSince <= 30 ? 'live' : 'idle' ?>"><i class="dot"></i>
         <?= $lastPkg ? 'آخر وزنة ' . e($ago($lastPkg['created_at'])) . ' — ' . e($lastPkg['code']) : 'لسه مفيش وزن' ?></span>
       <span class="pill"><i class="bi bi-speedometer"></i> النهارده <b class="num"><?= fmt_qty((float)$pToday['net'], 0) ?></b> كجم — <?= e(count_text((int)$pToday['n'] - (int)$pToday['sacks'], (int)$pToday['sacks'])) ?></span>
       <span class="pill"><i class="bi bi-cash-stack"></i> مبيعات النهارده <b class="num"><?= fmt_qty($sToday, 0) ?></b> ج</span>
+      <span class="pill upd" title="الصفحة بتتحدّث لوحدها أول ما يحصل أي جديد"><i class="bi bi-arrow-repeat"></i> تحديث تلقائي · <b id="dUpd" class="num" dir="ltr"><?= date('h:i:s') ?></b></span>
       <span class="pill"><i class="bi bi-people"></i> الحضور <b class="num"><?= (int)$att['present'] ?></b> من <?= $workersN ?></span>
     </div>
   </section>
 
   <!-- ===== KPIs ===== -->
   <section class="d-kpis">
-    <div class="dk reveal c-cyan has-spark"><div class="dk-top"><span class="dk-ic"><i class="bi bi-speedometer2"></i></span><span class="dk-lbl">إنتاج النهارده</span></div>
+    <div class="dk reveal c-cyan has-spark" data-card="prod_today" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-speedometer2"></i></span><span class="dk-lbl">إنتاج النهارده</span></div>
       <div class="dk-val"><span data-count="<?= round((float)$pToday['net'], 1) ?>" data-dec="1">0</span><small>كجم</small></div>
       <div class="dk-foot"><?= $delta($pct((float)$pToday['net'], (float)$pYday['net']), 'عن امبارح') ?><span><?= (int)$pToday['cones'] ?> كونة</span></div>
       <canvas class="spark" data-spark='<?= json_encode(array_values(array_column($last14, 'prod'))) ?>' data-color="#22d3ee"></canvas></div>
-    <div class="dk reveal c-blue has-spark"><div class="dk-top"><span class="dk-ic"><i class="bi bi-calendar3"></i></span><span class="dk-lbl">إنتاج الشهر</span></div>
+    <div class="dk reveal c-blue has-spark" data-card="prod_month" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-calendar3"></i></span><span class="dk-lbl">إنتاج الشهر</span></div>
       <div class="dk-val"><span data-count="<?= round((float)$pMonth['net'] / 1000, 2) ?>" data-dec="2">0</span><small>طن</small></div>
       <div class="dk-foot"><?= $delta($pct((float)$pMonth['net'], $pLastMonth), 'عن نفس الفترة') ?><span><?= e(count_text((int)$pMonth['n'] - (int)$pMonth['sacks'], (int)$pMonth['sacks'])) ?></span></div>
       <canvas class="spark" data-spark='<?= json_encode(array_values(array_column($days, 'prod'))) ?>' data-color="#60a5fa"></canvas></div>
-    <div class="dk reveal c-green has-spark"><div class="dk-top"><span class="dk-ic"><i class="bi bi-graph-up-arrow"></i></span><span class="dk-lbl">مبيعات الشهر</span></div>
+    <div class="dk reveal c-green has-spark" data-card="sales_month" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-graph-up-arrow"></i></span><span class="dk-lbl">مبيعات الشهر</span></div>
       <div class="dk-val"><span data-count="<?= round($sMonth) ?>">0</span><small>ج.م</small></div>
       <div class="dk-foot"><?= $delta($pct($sMonth, $sLast), 'عن نفس الفترة') ?><span><?= $sCount ?> فاتورة</span></div>
       <canvas class="spark" data-spark='<?= json_encode(array_values(array_column($days, 'amt'))) ?>' data-color="#34d399"></canvas></div>
-    <div class="dk reveal c-red"><div class="dk-top"><span class="dk-ic"><i class="bi bi-wallet2"></i></span><span class="dk-lbl">مستحق على العملاء</span></div>
+    <div class="dk reveal c-red" data-card="receivable" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-wallet2"></i></span><span class="dk-lbl">مستحق على العملاء</span></div>
       <div class="dk-val"><span data-count="<?= round($receivable) ?>">0</span><small>ج.م</small></div>
       <div class="dk-foot"><span><?= count($debtors) ?> عميل عليهم فلوس</span><a href="balances.php">الأرصدة ←</a></div>
       <div class="dk-bar"><i style="--w:<?= $sMonth > 0 ? min(100, round($collected / max(1, $sMonth) * 100)) : 0 ?>%"></i></div><div class="dk-note">اتحصّل الشهر ده <?= fmt_qty($collected, 0) ?> ج</div></div>
-    <div class="dk reveal c-violet"><div class="dk-top"><span class="dk-ic"><i class="bi bi-box-seam"></i></span><span class="dk-lbl">خيط تام في المخزن</span></div>
+    <div class="dk reveal c-violet" data-card="stock" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-box-seam"></i></span><span class="dk-lbl">خيط تام في المخزن</span></div>
       <div class="dk-val"><span data-count="<?= round((float)$wh['total']['kg'] / 1000, 2) ?>" data-dec="2">0</span><small>طن</small></div>
       <div class="dk-foot"><span><?= e(count_text((int)$wh['total']['cartons'], (int)$wh['total']['sacks'])) ?></span><span><?= $pallStock ?> بالتة</span></div></div>
-    <div class="dk reveal c-amber"><div class="dk-top"><span class="dk-ic"><i class="bi bi-layers"></i></span><span class="dk-lbl">رصيد الخام (POY)</span></div>
+    <div class="dk reveal c-amber" data-card="raw" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-layers"></i></span><span class="dk-lbl">رصيد الخام (POY)</span></div>
       <div class="dk-val"><span data-count="<?= round($rawTotal / 1000, 2) ?>" data-dec="2">0</span><small>طن</small></div>
       <div class="dk-foot"><span>≈ <?= number_format($rawTotal / $avgPal, 1) ?> بالتة</span><span><?= count(array_filter($lots, fn($l) => (float)$l['bal'] > 0.5)) ?> لوط شغال</span></div></div>
-    <div class="dk reveal c-teal"><div class="dk-top"><span class="dk-ic"><i class="bi bi-bag-check"></i></span><span class="dk-lbl">اتباع الشهر (كجم)</span></div>
+    <div class="dk reveal c-teal" data-card="sold_month" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-bag-check"></i></span><span class="dk-lbl">اتباع الشهر (كجم)</span></div>
       <div class="dk-val"><span data-count="<?= round(((float)$soldKg['fin'] + (float)$soldKg['raw']) / 1000, 2) ?>" data-dec="2">0</span><small>طن</small></div>
       <div class="dk-foot"><span>خيط <?= fmt_qty((float)$soldKg['fin'], 0) ?></span><span>خام <?= fmt_qty((float)$soldKg['raw'], 0) ?></span></div></div>
-    <div class="dk reveal c-slate"><div class="dk-top"><span class="dk-ic"><i class="bi bi-truck"></i></span><span class="dk-lbl">النقل الشهر ده</span></div>
+    <div class="dk reveal c-slate" data-card="trips" role="button" tabindex="0" title="اضغط للتفاصيل"><i class="bi bi-arrows-angle-expand dk-more"></i><div class="dk-top"><span class="dk-ic"><i class="bi bi-truck"></i></span><span class="dk-lbl">النقل الشهر ده</span></div>
       <div class="dk-val"><span data-count="<?= (int)$trips['n'] ?>">0</span><small>مشوار</small></div>
       <div class="dk-foot"><span>تكلفة <?= fmt_qty((float)$trips['amt'], 0) ?> ج</span><a href="transport.php">النقل ←</a></div></div>
   </section>
@@ -216,7 +218,7 @@ $ring = function (float $p, string $color, string $label, string $sub = '') {
 
   <!-- ===== quality / mix / people ===== -->
   <section class="d-grid g-4-4-4">
-    <div class="dc reveal"><div class="dc-h"><h6><i class="bi bi-bullseye"></i> الجودة — نظامي الشهر ده</h6><a href="packages.php" class="dc-link">التفاصيل</a></div>
+    <div class="dc reveal"><div class="dc-h"><h6><i class="bi bi-bullseye"></i> الجودة — كراتين نظامي الشهر ده</h6><a href="packages.php" class="dc-link">التفاصيل</a></div>
       <div class="q-wrap">
         <?= $ring($qOkPct, '#10b981', 'في المعدل', '<span class="tag ok">±' . fmt_qty($okP, 0) . '%</span>') ?>
         <div class="q-side">
@@ -224,7 +226,7 @@ $ring = function (float $p, string $color, string $label, string $sub = '') {
           <div class="q-tgt">الهدف <?= fmt_qty($T, 2) ?> — <?= $qAvg > 0 ? ($qAvg >= $T ? '<b class="text-success">+' . number_format(($qAvg - $T) / $T * 100, 1) . '%</b>' : '<b class="text-danger">' . number_format(($qAvg - $T) / $T * 100, 1) . '%</b>') : '—' ?></div>
           <div class="q-stack"><i class="ok" style="--w:<?= $qOkPct ?>%"></i><i class="warn" style="--w:<?= $qWarnPct ?>%"></i><i class="bad" style="--w:<?= $qBadPct ?>%"></i></div>
           <div class="q-leg"><span><i class="ok"></i>مظبوط <?= $qOkPct ?>%</span><span><i class="warn"></i>قريب <?= $qWarnPct ?>%</span><span><i class="bad"></i>بعيد <?= $qBadPct ?>%</span></div>
-          <div class="small text-muted"><?= $qN ?> كرتونة/شكارة نظامي</div>
+          <div class="small text-muted"><?= $qN ?> كرتونة نظامي</div>
         </div>
       </div></div>
     <div class="dc reveal"><div class="dc-h"><h6><i class="bi bi-pie-chart"></i> إنتاج الشهر حسب النمرة</h6></div>
@@ -291,54 +293,124 @@ $ring = function (float $p, string $color, string $label, string $sub = '') {
         <a class="fd" href="<?= e($f['href']) ?>"><span class="fd-ic <?= $f['c'] ?>"><i class="bi bi-<?= $f['ic'] ?>"></i></span><div class="fd-m"><span><?= e($f['txt']) ?></span><small><?= e($ago($f['t'])) ?></small></div><?= $f['v'] ? '<b class="num">' . e($f['v']) . '</b>' : '' ?></a>
       <?php endforeach; if (!$feed): ?><div class="d-empty"><i class="bi bi-clock"></i>لسه مفيش أحداث</div><?php endif; ?></div></div>
   </section>
+  <script type="application/json" id="dashData"><?= json_encode([
+      'days' => array_map(fn($d) => date('d/m', strtotime($d)), array_keys($days)),
+      'prod' => array_values(array_column($days, 'prod')), 'sold' => array_values(array_column($days, 'sold')),
+      'hours' => array_values($hours),
+      'countLabels' => array_map(fn($r) => $r['spec'] . ' — ' . $r['code'], $byCount), 'countKg' => array_map(fn($r) => round((float)$r['kg'], 1), $byCount),
+  ], JSON_UNESCAPED_UNICODE) ?></script>
 </div>
+
+<div class="modal fade" id="dashModal" tabindex="-1"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content dd-modal">
+  <div class="modal-header"><h5 class="modal-title" id="dmTitle"></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body" id="dmBody"></div>
+</div></div></div>
 
 <script>
 (() => {
-  // live clock in the hero
-  const ck = document.getElementById('dClock'), dt = document.getElementById('dDate');
-  const tick = () => { const n = new Date(); ck.textContent = n.toLocaleTimeString('en-GB'); dt.textContent = n.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); };
+  const $ = id => document.getElementById(id);
+  const p2 = v => String(v).padStart(2, '0');
+  const fmt = (v, d) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // live clock (looked up every tick: the hero is replaced on refresh)
+  const tick = () => {
+    const ck = $('dClock'), dt = $('dDate'); if (!ck) return;
+    const n = new Date(), h = n.getHours();
+    ck.innerHTML = `${h % 12 || 12}:${p2(n.getMinutes())}:${p2(n.getSeconds())} <small class="ampm">${h < 12 ? 'ص' : 'م'}</small>`;
+    dt.textContent = n.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  };
   tick(); setInterval(tick, 1000);
-  // animate rings and bars once the page is in
-  requestAnimationFrame(() => setTimeout(() => {
-    document.querySelectorAll('.ring .bar').forEach(c => c.style.strokeDashoffset = c.dataset.off);
-    document.querySelectorAll('.dash [style*="--w"]').forEach(el => el.classList.add('go'));
-  }, 250));
-})();
-window.addEventListener('load', () => {
-  Chart.defaults.font.family = 'Cairo, Tahoma, sans-serif';
-  Chart.defaults.color = '#64748b';
-  const grad = (ctx, c1, c2) => { const g = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height); g.addColorStop(0, c1); g.addColorStop(1, c2); return g; };
 
-  document.querySelectorAll('canvas.spark').forEach(cv => {
-    const data = JSON.parse(cv.dataset.spark || '[]'), col = cv.dataset.color;
-    new Chart(cv, { type: 'line', data: { labels: data.map((_, i) => i), datasets: [{ data, borderColor: col, borderWidth: 2, tension: .4, pointRadius: 0, fill: true, backgroundColor: grad(cv.getContext('2d'), col + '55', col + '00') }] },
-      options: { maintainAspectRatio: false, animation: { duration: 1400 }, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: true } } } });
+  let charts = [];
+  function initDash(first) {
+    const root = document.querySelector('.dash');
+    charts.forEach(c => c.destroy()); charts = [];
+    if (!first) root.querySelectorAll('[data-count]').forEach(el => { el.textContent = fmt(parseFloat(el.dataset.count) || 0, parseInt(el.dataset.dec || '0', 10)); });
+    requestAnimationFrame(() => setTimeout(() => {
+      root.querySelectorAll('.ring .bar').forEach(c => c.style.strokeDashoffset = c.dataset.off);
+      root.querySelectorAll('[style*="--w"]').forEach(el => el.classList.add('go'));
+    }, first ? 250 : 0));
+    if (!window.Chart) return;
+    Chart.defaults.font.family = 'Cairo, Tahoma, sans-serif';
+    Chart.defaults.color = '#64748b';
+    const anim = first && !reduce;
+    const grad = (ctx, c1, c2) => { const g = ctx.createLinearGradient(0, 0, 0, ctx.canvas.height || 300); g.addColorStop(0, c1); g.addColorStop(1, c2); return g; };
+    const D = JSON.parse($('dashData').textContent);
+    root.querySelectorAll('canvas.spark').forEach(cv => {
+      const data = JSON.parse(cv.dataset.spark || '[]'), col = cv.dataset.color;
+      charts.push(new Chart(cv, { type: 'line', data: { labels: data.map((_, i) => i), datasets: [{ data, borderColor: col, borderWidth: 2, tension: .4, pointRadius: 0, fill: true, backgroundColor: grad(cv.getContext('2d'), col + '55', col + '00') }] },
+        options: { maintainAspectRatio: false, animation: anim ? { duration: 1400 } : false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: true } } } }));
+    });
+    const cd = $('chDays'), x = cd.getContext('2d');
+    charts.push(new Chart(cd, { type: 'line',
+      data: { labels: D.days, datasets: [
+        { label: 'الإنتاج', data: D.prod, borderColor: '#22b8d8', backgroundColor: grad(x, 'rgba(34,184,216,.35)', 'rgba(34,184,216,0)'), fill: true, tension: .35, borderWidth: 3, pointRadius: 0, pointHoverRadius: 5 },
+        { label: 'مبيعات خيط تام', data: D.sold, borderColor: '#10b981', backgroundColor: grad(x, 'rgba(16,185,129,.25)', 'rgba(16,185,129,0)'), fill: true, tension: .35, borderWidth: 3, pointRadius: 0, pointHoverRadius: 5 },
+      ] },
+      options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, animation: anim ? { duration: 1600, easing: 'easeOutQuart' } : false,
+        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true } } }, scales: { y: { beginAtZero: true, grid: { color: '#eef2f7' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } } } } }));
+    const nowH = new Date().getHours();
+    charts.push(new Chart($('chHours'), { type: 'bar',
+      data: { labels: D.hours.map((_, h) => p2(h)), datasets: [{ label: 'كجم', data: D.hours, borderRadius: 6, backgroundColor: D.hours.map((_, h) => h === nowH ? '#f59e0b' : 'rgba(37,99,235,.75)') }] },
+      options: { maintainAspectRatio: false, animation: anim ? { duration: 1300, delay: c => c.dataIndex * 35 } : false, plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, grid: { color: '#eef2f7' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } } } } }));
+    const cc = $('chCounts');
+    if (cc) charts.push(new Chart(cc, { type: 'doughnut',
+      data: { labels: D.countLabels, datasets: [{ data: D.countKg, backgroundColor: ['#22b8d8', '#2563eb', '#10b981', '#f59e0b', '#a78bfa', '#ef4444', '#14b8a6', '#64748b'], borderWidth: 3, borderColor: '#fff', hoverOffset: 10 }] },
+      options: { maintainAspectRatio: false, cutout: '66%', animation: anim ? { animateRotate: true, animateScale: true, duration: 1500 } : false, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } } } } }));
+  }
+  window.addEventListener('load', () => initDash(true));
+
+  // ---------- details modal (click a KPI tile) ----------
+  let modal = null, openCard = null;
+  async function loadCard(key, quiet) {
+    if (!quiet) { $('dmTitle').textContent = 'بيحمّل…'; $('dmBody').innerHTML = '<div class="dd-load"><span class="spinner-border text-info"></span></div>'; }
+    try {
+      const r = await fetch('api_dash.php?card=' + encodeURIComponent(key), { cache: 'no-store' });
+      const j = await r.json();
+      $('dmTitle').textContent = j.title; $('dmBody').innerHTML = j.html;
+    } catch (e) { if (!quiet) $('dmBody').innerHTML = '<div class="alert alert-danger">مفيش اتصال بالسيرفر — جرّب تاني</div>'; }
+  }
+  document.addEventListener('click', e => {
+    const c = e.target.closest('.dk[data-card]'); if (!c || e.target.closest('a')) return;
+    openCard = c.dataset.card;
+    modal = modal || new bootstrap.Modal($('dashModal'));
+    loadCard(openCard); modal.show();
   });
+  document.addEventListener('keydown', e => { const c = e.target.closest && e.target.closest('.dk[data-card]'); if (c && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); c.click(); } });
+  $('dashModal').addEventListener('hidden.bs.modal', () => { openCard = null; });
 
-  const days = <?= json_encode(array_map(fn($d) => date('d/m', strtotime($d)), array_keys($days))) ?>;
-  const cd = document.getElementById('chDays'), x = cd.getContext('2d');
-  new Chart(cd, { type: 'line',
-    data: { labels: days, datasets: [
-      { label: 'الإنتاج', data: <?= json_encode(array_values(array_column($days, 'prod'))) ?>, borderColor: '#22b8d8', backgroundColor: grad(x, 'rgba(34,184,216,.35)', 'rgba(34,184,216,0)'), fill: true, tension: .35, borderWidth: 3, pointRadius: 0, pointHoverRadius: 5 },
-      { label: 'مبيعات خيط تام', data: <?= json_encode(array_values(array_column($days, 'sold'))) ?>, borderColor: '#10b981', backgroundColor: grad(x, 'rgba(16,185,129,.25)', 'rgba(16,185,129,0)'), fill: true, tension: .35, borderWidth: 3, pointRadius: 0, pointHoverRadius: 5 },
-    ] },
-    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, animation: { duration: 1600, easing: 'easeOutQuart' },
-      plugins: { legend: { position: 'bottom', labels: { usePointStyle: true } } }, scales: { y: { beginAtZero: true, grid: { color: '#eef2f7' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } } } } });
-
-  const ch = document.getElementById('chHours');
-  const hrs = <?= json_encode(array_values($hours)) ?>, nowH = new Date().getHours();
-  new Chart(ch, { type: 'bar',
-    data: { labels: hrs.map((_, h) => String(h).padStart(2, '0')), datasets: [{ label: 'كجم', data: hrs, borderRadius: 6,
-      backgroundColor: hrs.map((_, h) => h === nowH ? '#f59e0b' : 'rgba(37,99,235,.75)') }] },
-    options: { maintainAspectRatio: false, animation: { duration: 1300, delay: c => c.dataIndex * 35 }, plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true, grid: { color: '#eef2f7' } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 12 } } } } });
-
-  const cc = document.getElementById('chCounts');
-  if (cc) new Chart(cc, { type: 'doughnut',
-    data: { labels: <?= json_encode(array_map(fn($r) => $r['spec'] . ' — ' . $r['code'], $byCount), JSON_UNESCAPED_UNICODE) ?>,
-      datasets: [{ data: <?= json_encode(array_map(fn($r) => round((float)$r['kg'], 1), $byCount)) ?>, backgroundColor: ['#22b8d8', '#2563eb', '#10b981', '#f59e0b', '#a78bfa', '#ef4444', '#14b8a6', '#64748b'], borderWidth: 3, borderColor: '#fff', hoverOffset: 10 }] },
-    options: { maintainAspectRatio: false, cutout: '66%', animation: { animateRotate: true, animateScale: true, duration: 1500 }, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8 } } } } });
-});
+  // ---------- auto refresh: poll a tiny fingerprint, reload the dashboard only when something changed ----------
+  let sig = null, lastSwap = Date.now(), busy = false;
+  async function refresh() {
+    const old = document.querySelector('.dash');
+    const r = await fetch(location.pathname + location.search, { cache: 'no-store' });
+    if (!r.ok || r.redirected) return;
+    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+    const fresh = doc.querySelector('.dash'); if (!fresh) return;
+    const before = [...old.querySelectorAll('[data-card] [data-count]')].map(el => el.dataset.count);
+    fresh.classList.add('no-anim');
+    old.replaceWith(fresh);
+    initDash(false);
+    fresh.querySelectorAll('[data-card] [data-count]').forEach((el, i) => { if (before[i] !== undefined && before[i] !== el.dataset.count) el.closest('.dk').classList.add('bump'); });
+    lastSwap = Date.now();
+    if (openCard) loadCard(openCard, true);
+  }
+  async function poll(force) {
+    if (busy || (document.hidden && !force)) return;
+    busy = true;
+    try {
+      const j = await (await fetch('api_dash.php?sig=1', { cache: 'no-store' })).json();
+      if (sig !== null && (j.sig !== sig || Date.now() - lastSwap > 5 * 60000)) await refresh();
+      sig = j.sig;
+      const u = $('dUpd'); if (u) { const n = new Date(); u.textContent = `${p2(n.getHours() % 12 || 12)}:${p2(n.getMinutes())}:${p2(n.getSeconds())}`; }
+    } catch (e) { /* offline for a moment: try again next round */ }
+    busy = false;
+  }
+  poll(true);
+  setInterval(poll, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
+})();
 </script>
 <?php require __DIR__ . '/inc/footer.php';

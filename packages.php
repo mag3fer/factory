@@ -38,7 +38,11 @@ $canVoid = in_array($u['role'], ['admin', 'store'], true);
 const PKG_STATUS = ['in_stock' => 'في المخزن', 'sold' => 'مباع', 'void' => 'ملغي'];
 
 // quality statistics, per type: the ideal weight is cones × target per cone, and نظامي (fixed cones) is judged apart from متعدد
-$stat = function (int $mixed) use ($baseW, $baseP, $perCone, $okPct, $warnPct): array {
+// with no packing filter the quality is judged on cartons only: a sack is lighter (empty sack ≈ 0.08 kg vs carton ≈ 1.4 kg)
+$qualW = $baseW;
+if ($pk === '' && $search === '') $qualW[] = "(pi.name IS NULL OR pi.name NOT LIKE '%شكار%')";
+$stat = function (int $mixed) use ($qualW, $baseP, $perCone, $okPct, $warnPct): array {
+    $baseW = $qualW;
     $pc = sprintf('%.4F', $perCone); $ok = sprintf('%.4F', $okPct); $wn = sprintf('%.4F', $warnPct);
     $dev = "ABS(p.gross - p.cones_count*$pc) / (p.cones_count*$pc) * 100";
     $s = q("SELECT COUNT(*) n, COALESCE(SUM(p.net),0) net,
@@ -140,17 +144,17 @@ require __DIR__ . '/inc/header.php';
 
 <?php if ($showStats && $md !== 'mixed' && (int)$sStd['nc']): ?>
 <div class="card pk-quality no-print">
-  <div class="pk-q-head"><h6 class="mb-0"><i class="bi bi-clipboard-check"></i> تقييم الجودة — نظامي بس</h6>
+  <div class="pk-q-head"><h6 class="mb-0"><i class="bi bi-clipboard-check"></i> تقييم الجودة — نظامي <?= $pk === 'sack' ? 'شكاير' : 'كراتين' ?> بس</h6>
     <span class="small text-muted">المتعدد مش داخل في المتوسط<?= (int)$sMix['n'] ? ' (' . (int)$sMix['n'] . ' كرتونة متعدد مستبعدة)' : '' ?></span></div>
   <div class="row text-center g-2 my-2">
-    <div class="col-6 col-md-3"><div class="text-muted small">متوسط وزن الكرتونة (قائم)</div><div class="fs-2 fw-bold num"><?= fmt_qty($sStd['avg_gross'], 2) ?></div></div>
+    <div class="col-6 col-md-3"><div class="text-muted small">متوسط وزن <?= $pk === 'sack' ? 'الشكارة' : 'الكرتونة' ?> (قائم)</div><div class="fs-2 fw-bold num"><?= fmt_qty($sStd['avg_gross'], 2) ?></div></div>
     <div class="col-6 col-md-3"><div class="text-muted small">المثالي (قائم)</div><div class="fs-2 fw-bold num text-secondary"><?= fmt_qty($sStd['target'], 2) ?></div></div>
     <div class="col-6 col-md-3"><div class="text-muted small">متوسط الصافي</div><div class="fs-2 fw-bold text-success num"><?= fmt_qty($sStd['avg_net'], 2) ?></div></div>
-    <div class="col-6 col-md-3"><div class="text-muted small">أخف / أتقل كرتونة (قائم)</div><div class="fs-4 fw-bold num"><?= fmt_qty($sStd['gmin'], 2) ?> <span class="text-muted">—</span> <?= fmt_qty($sStd['gmax'], 2) ?></div></div>
+    <div class="col-6 col-md-3"><div class="text-muted small">أخف / أتقل <?= $pk === 'sack' ? 'شكارة' : 'كرتونة' ?> (قائم)</div><div class="fs-4 fw-bold num"><?= fmt_qty($sStd['gmin'], 2) ?> <span class="text-muted">—</span> <?= fmt_qty($sStd['gmax'], 2) ?></div></div>
   </div>
   <?php $gauge($sStd, 'الإنتاج النظامي', 'المثالي ' . fmt_qty($perCone, 0) . ' كيلو قائم لكل كونة'); ?>
   <?php $zones($sStd); ?>
-  <?php if ((int)$sStd['sacks'] > 0 && $pk === ''): ?><div class="small text-warning-emphasis mt-2"><i class="bi bi-info-circle"></i> المتوسط ده فيه <?= (int)$sStd['sacks'] ?> شكارة. الشكارة أخف من الكرتونة، فاختار «كراتين» أو «شكاير» لتقييم أدق.</div><?php endif; ?>
+  <?php if ($pk === ''): ?><div class="small text-muted mt-2"><i class="bi bi-info-circle"></i> التقييم على الكراتين النظامي بس. لو عايز تقيّم الشكاير اختار «شكاير بس» من فلتر التعبئة.</div><?php endif; ?>
 </div>
 <?php elseif ($showStats && $md !== 'mixed'): ?>
 <div class="card pk-quality no-print text-center text-muted py-3">مفيش إنتاج نظامي في الفترة دي عشان نحسب متوسطه.</div>
