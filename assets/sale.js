@@ -114,14 +114,18 @@
   }
 
   // ---------- suggest what to pick for a requested quantity ----------
-  // Whole pallets first (oldest production first), then the closest number of cartons from a pallet that is already short
-  // (or, if none, the oldest full pallet), so the total lands as close as possible to what the customer asked for.
-  let sug = null;
+  // 1) closed (full) pallets, oldest first, as close to the quantity as possible — overshooting is fine if it is closer;
+  // 2) the small gap that is left is filled with متعدد cartons of the same count (so they leave with the order instead of piling up),
+  //    then with cartons from a pallet that is already short; a new full pallet is only broken when a big gap remains.
+  // The proposal can then be edited (remove a pallet / a carton, add a carton, add from another pallet) before it goes on the invoice.
+  let sug = null;   // { target, code, order: [gi...], sel: Map(gi -> Set(package id)) }
+  const availOf = gi => stock[gi].packages.filter(p => !pkgs.has(p.id));
+  const isFull = gi => { const g = stock[gi]; return !!(g.pallet && g.capacity && availOf(gi).length >= g.capacity); };
   function fillSugCounts() {
     const sel = $('sugCount'); if (!sel) return;
     const prev = sel.value, by = {};
-    stock.forEach(g => {
-      const pk = g.packages.filter(p => !pkgs.has(p.id)); if (!pk.length) return;
+    stock.forEach((g, gi) => {
+      const pk = availOf(gi); if (!pk.length) return;
       by[g.code] = by[g.code] || { spec: g.spec, kg: 0 };
       by[g.code].kg += pk.reduce((s, p) => s + p.net, 0);
     });
@@ -130,58 +134,103 @@
     if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
     else if (sel.options.length === 2) sel.selectedIndex = 1;
   }
+  // groups that may serve this order: same count, same packing (كراتين / شكاير chip); standard and mixed apart
+  function sugGroups(code) {
+    const packOk = g => chip === 'carton' ? !g.sack : chip === 'sack' ? !!g.sack : true;
+    return stock.map((g, gi) => gi).filter(gi => stock[gi].code === code && packOk(stock[gi]) && availOf(gi).length);
+  }
+  const byAge = (a, b) => String(stock[a].from).localeCompare(String(stock[b].from));
   function suggest() {
     const target = (parseFloat($('sugQty').value) || 0) * Number($('sugUnit').value);
     const code = $('sugCount').value;
     if (target <= 0) return sugMsg('اكتب الكمية المطلوبة');
     if (!code) return sugMsg('اختار النمرة');
-    // respect the packing / type chips (كراتين / شكاير / نظامي / متعدد); default to نظامي when nothing is chosen
-    const okG = g => g.code === code && (chip === 'carton' ? !g.sack : chip === 'sack' ? !!g.sack : true)
-      && (chip === 'mixed' ? !!g.mixed : !g.mixed);
-    const cand = stock.map((g, gi) => ({ g, gi, pk: g.packages.filter(p => !pkgs.has(p.id)) })).filter(c => okG(c.g) && c.pk.length)
-      .map(c => ({ ...c, kg: c.pk.reduce((s, p) => s + p.net, 0), full: !!(c.g.pallet && c.g.capacity && c.pk.length >= c.g.capacity) }));
-    if (!cand.length) return sugMsg(chip === 'mixed' ? 'مفيش متعدد من النمرة دي' : 'مفيش نظامي من النمرة دي بالفلتر ده — لو عايز متعدد اختار «متعدد» فوق');
-    const byAge = (a, b) => String(a.g.from).localeCompare(String(b.g.from));
-    const fulls = cand.filter(c => c.full).sort(byAge), parts = cand.filter(c => !c.full).sort(byAge);
-    const pick = [], loose = [];
+    const all = sugGroups(code);
+    const mixedOnly = chip === 'mixed';
+    const std = all.filter(gi => mixedOnly ? stock[gi].mixed : !stock[gi].mixed), mix = all.filter(gi => stock[gi].mixed && !mixedOnly);
+    if (!std.length && !mix.length) return sugMsg('مفيش مخزن من النمرة دي بالفلتر ده');
+    const fulls = std.filter(isFull).sort(byAge), parts = std.filter(gi => !isFull(gi)).sort(byAge);
+    const s = { target, code, order: [], sel: new Map() };
     let total = 0;
-    for (const c of fulls) if (total + c.kg <= target + 0.001) { pick.push(c); total += c.kg; }
-    // cartons from a short pallet / loose group first, then break the oldest unused full pallet
-    const rest = [...parts, ...fulls.filter(c => !pick.includes(c))];
-    for (const c of rest) {
-      if (target - total < 0.5) break;
-      if (total + c.kg <= target + 0.001) { pick.push(c); total += c.kg; continue; }
-      for (const p of [...c.pk].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
-        if (Math.abs(total + p.net - target) >= Math.abs(total - target)) break;
-        loose.push({ p, c }); total += p.net;
+    const kgOf = gi => availOf(gi).reduce((t, p) => t + p.net, 0);
+    const takeAll = gi => { s.order.push(gi); s.sel.set(gi, new Set(availOf(gi).map(p => p.id))); total += kgOf(gi); };
+    const used = new Set();
+    for (const gi of fulls) if (total + kgOf(gi) <= target + 0.001) { takeAll(gi); used.add(gi); }
+    const next = fulls.find(gi => !used.has(gi));
+    if (next !== undefined && Math.abs(total + kgOf(next) - target) < Math.abs(total - target)) { takeAll(next); used.add(next); }
+    const fill = list => {
+      for (const gi of list) {
+        for (const p of availOf(gi).sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
+          if (Math.abs(total + p.net - target) >= Math.abs(total - target)) return;
+          if (!s.sel.has(gi)) { s.sel.set(gi, new Set()); s.order.push(gi); }
+          s.sel.get(gi).add(p.id); total += p.net;
+        }
       }
-    }
-    const avail = cand.reduce((s, c) => s + c.kg, 0);
-    sug = { pick, loose, total, target };
-    const diff = total - target, n = pick.reduce((s, c) => s + c.pk.length, 0) + loose.length;
-    const looseBy = {};
-    loose.forEach(({ p, c }) => { const k = c.g.pallet || 'سايبة'; (looseBy[k] = looseBy[k] || []).push(p); });
+    };
+    if ($('sugMix')?.checked) fill([...mix].sort(byAge));
+    fill(parts);
+    const avgPal = fulls.length ? fulls.reduce((t, gi) => t + kgOf(gi), 0) / fulls.length : 600;
+    if (target - total > avgPal / 2) fill(fulls.filter(gi => !used.has(gi)));
+    sug = s;
+    drawSug();
+  }
+  function drawSug() {
+    if (!sug) { $('sugBox').innerHTML = ''; return; }
+    let total = 0, n = 0;
+    const rows = sug.order.filter(gi => sug.sel.get(gi)?.size).map(gi => {
+      const g = stock[gi], av = availOf(gi), ids = sug.sel.get(gi), picked = av.filter(p => ids.has(p.id));
+      const kg = picked.reduce((t, p) => t + p.net, 0); total += kg; n += picked.length;
+      const whole = picked.length === av.length, u = g.sack ? 'شكارة' : 'كرتونة';
+      const name = g.pallet ? `بالتة <b dir="ltr">${esc(g.pallet)}</b>` : (g.sack ? 'شكاير سايبة' : 'كراتين سايبة');
+      return `<div class="sg-row ${g.mixed ? 'mix' : whole && g.pallet ? 'full' : 'part'}">
+        <div class="sg-h"><i class="bi ${g.pallet ? 'bi-boxes' : 'bi-box'}"></i><span>${name} ${g.mixed ? '<em class="t-mix">متعدد</em>' : ''}${whole && g.pallet ? '<em class="t-full">كاملة</em>' : ''}</span>
+          <span class="sg-n"><b>${picked.length}</b> من ${av.length} ${u} · <b class="num">${fmt(kg, 1)}</b> كجم</span>
+          <span class="sg-btns">${!whole ? `<button type="button" data-act="one" data-g="${gi}" title="زوّد ${u}"><i class="bi bi-plus-lg"></i></button><button type="button" data-act="all" data-g="${gi}" title="الباقي كله">الكل</button>` : ''}
+            ${whole && picked.length > 1 ? `<button type="button" data-act="open" data-g="${gi}" title="قلّل منها"><i class="bi bi-pencil"></i></button>` : ''}
+            <button type="button" class="rm" data-act="rmg" data-g="${gi}" title="شيلها من الاقتراح"><i class="bi bi-x-lg"></i></button></span></div>
+        ${!whole || sug.open === gi ? `<div class="sg-chips">${picked.map(p => `<span>${p.seq ? `<em>${p.seq}</em>` : ''}<b class="num">${fmt(p.net, 1)}</b><button type="button" data-act="rmp" data-g="${gi}" data-id="${p.id}" title="شيل دي">✕</button></span>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('');
+    // other sources the user can add from
+    const others = sugGroups(sug.code).filter(gi => availOf(gi).length > (sug.sel.get(gi)?.size || 0)).sort(byAge);
+    const diff = total - sug.target;
     $('sugBox').innerHTML = `<div class="sp-sug-r">
-      <div class="sp-sug-k"><div><b class="num">${fmt(total / 1000, 3)}</b><span>طن مقترح</span></div><div><b class="num">${fmt(target / 1000, 3)}</b><span>طن مطلوب</span></div>
+      <div class="sp-sug-k"><div><b class="num">${fmt(total / 1000, 3)}</b><span>طن مقترح</span></div><div><b class="num">${fmt(sug.target / 1000, 3)}</b><span>طن مطلوب</span></div>
         <div class="${Math.abs(diff) < 50 ? 'ok' : diff < 0 ? 'lo' : 'hi'}"><b class="num">${diff >= 0 ? '+' : '−'}${fmt(Math.abs(diff), 1)}</b><span>كيلو فرق</span></div><div><b>${n}</b><span>كرتونة / شكارة</span></div></div>
-      ${avail < target ? `<div class="alert alert-warning py-1 px-2 small mb-2">المتاح من النمرة دي ${fmt(avail, 0)} كيلو بس — أقل من المطلوب</div>` : ''}
-      <div class="sp-sug-list">${pick.map(c => `<span class="sg-pal"><i class="bi bi-boxes"></i> ${c.g.pallet ? 'بالتة <b dir="ltr">' + esc(c.g.pallet) + '</b>' : 'سايبة'} · ${c.pk.length} ${c.g.sack ? 'شكارة' : 'كرتونة'} · ${fmt(c.kg, 1)} كجم</span>`).join('')}
-        ${Object.entries(looseBy).map(([k, ps]) => `<span class="sg-part"><i class="bi bi-box"></i> من ${k === 'سايبة' ? 'الكراتين السايبة' : 'بالتة <b dir="ltr">' + esc(k) + '</b>'}: ${ps.length} (${ps.map(p => p.seq || p.serial).join('، ')}) · ${fmt(ps.reduce((s, p) => s + p.net, 0), 1)} كجم</span>`).join('')}</div>
-      <button type="button" class="btn sp-sug-add" id="sugAdd"${n ? '' : ' disabled'}><i class="bi bi-cart-plus"></i> ضيف الاقتراح للفاتورة</button></div>`;
+      <div class="sp-sug-list">${rows || '<div class="small text-muted">الاقتراح فاضي — ضيف من تحت</div>'}</div>
+      ${others.length ? `<div class="sg-add"><select class="form-select form-select-sm" id="sugSrc">${others.map(gi => { const g = stock[gi], left = availOf(gi).length - (sug.sel.get(gi)?.size || 0);
+          return `<option value="${gi}">${g.pallet ? 'بالتة ' + esc(g.pallet) : 'سايبة'}${g.mixed ? ' — متعدد' : ''} — متاح ${left} ${g.sack ? 'شكارة' : 'كرتونة'}</option>`; }).join('')}</select>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-act="src1"><i class="bi bi-plus-lg"></i> كرتونة</button><button type="button" class="btn btn-sm btn-outline-primary" data-act="srcall">الكل</button></div>` : ''}
+      <button type="button" class="btn sp-sug-add" id="sugAdd"${n ? '' : ' disabled'}><i class="bi bi-cart-plus"></i> ضيف الاقتراح للفاتورة (${n})</button></div>`;
   }
   const sugMsg = t => { sug = null; $('sugBox').innerHTML = `<div class="small text-danger mt-2">${esc(t)}</div>`; };
+  function sugAddOne(gi, all) {
+    if (!sug.sel.has(gi)) sug.sel.set(gi, new Set());
+    if (!sug.order.includes(gi)) sug.order.push(gi);
+    const ids = sug.sel.get(gi);
+    for (const p of availOf(gi).sort((a, b) => (a.seq || 0) - (b.seq || 0))) { if (ids.has(p.id)) continue; ids.add(p.id); if (!all) break; }
+  }
   if ($('sugGo')) {
     $('sugGo').addEventListener('click', suggest);
     $('sugQty').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); suggest(); } });
     $('sugBox').addEventListener('click', async e => {
-      if (!e.target.closest('#sugAdd') || !sug) return;
+      const b = e.target.closest('button'); if (!b || !sug) return;
+      const act = b.dataset.act, gi = Number(b.dataset.g);
+      if (act === 'one') sugAddOne(gi, false);
+      else if (act === 'all') sugAddOne(gi, true);
+      else if (act === 'open') sug.open = sug.open === gi ? null : gi;
+      else if (act === 'rmg') { sug.sel.delete(gi); sug.order = sug.order.filter(x => x !== gi); }
+      else if (act === 'rmp') sug.sel.get(gi)?.delete(Number(b.dataset.id));
+      else if (act === 'src1' || act === 'srcall') sugAddOne(Number($('sugSrc').value), act === 'srcall');
+      if (act) return drawSug();
+      if (b.id !== 'sugAdd') return;
       const list = [];
-      sug.pick.forEach(c => c.pk.forEach(p => { p.pallet = c.g.pallet || null; list.push(p); }));
-      sug.loose.forEach(({ p, c }) => { p.pallet = c.g.pallet || null; list.push(p); });
+      sug.order.forEach(g => availOf(g).forEach(p => { if (sug.sel.get(g)?.has(p.id)) { p.pallet = stock[g].pallet || null; list.push(p); } }));
+      if (!list.length) return;
       const r = await addPackages(list);
       beep(true);
       msg(`<i class="bi bi-stars"></i> ضفت الاقتراح: <b>${r.added}</b> (<b class="num">${fmt(r.sum, 1)}</b> كيلو) — إجمالي الفاتورة دلوقتي <b>${pkgs.size}</b>`, 'success');
-      $('sugBox').innerHTML = ''; sug = null;
+      sug = null; drawSug();
       drawStock(); fillSugCounts();
     });
   }
@@ -417,4 +466,6 @@
 
   window.addEventListener('beforeunload', e => { if (pkgs.size && !$('btnSave').disabled) { e.preventDefault(); e.returnValue = ''; } });
   render();
+  // the delivery note is the default document: apply its look on load (after everything above is defined)
+  if (isDelivery()) $('kindDelivery').dispatchEvent(new Event('change'));
 })();

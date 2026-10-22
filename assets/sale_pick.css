@@ -32,8 +32,25 @@
 .sp-sug-k b { display: block; font-size: 1.05rem; font-weight: 900; } .sp-sug-k span { font-size: .68rem; color: var(--tl-muted); }
 .sp-sug-k .ok b { color: #059669; } .sp-sug-k .lo b { color: #d97706; } .sp-sug-k .hi b { color: #2563eb; }
 .sp-sug-list { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .55rem; }
-.sp-sug-list span { background: #fff; border-radius: 10px; padding: .3rem .6rem; font-size: .82rem; border-inline-start: 4px solid #10b981; animation: spIn .3s ease both; }
-.sp-sug-list .sg-part { border-inline-start-color: #f59e0b; }
+.sp-sug-opt { display: flex; align-items: center; gap: .4rem; font-size: .8rem; margin-top: .45rem; color: var(--tl-ink); cursor: pointer; }
+.sg-row { background: #fff; border-radius: 12px; padding: .4rem .6rem; border-inline-start: 4px solid #f59e0b; box-shadow: var(--tl-shadow); animation: spIn .3s ease both; }
+.sg-row.full { border-inline-start-color: #10b981; } .sg-row.mix { border-inline-start-color: #f59e0b; background: #fffbeb; } .sg-row.part { border-inline-start-color: #3b82f6; }
+.sg-h { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; font-size: .85rem; }
+.sg-h > i { color: var(--tl-muted); }
+.sg-h em { font-style: normal; font-size: .66rem; font-weight: 800; border-radius: 6px; padding: 0 .35rem; margin-inline-start: .2rem; }
+.sg-n { color: var(--tl-muted); font-size: .78rem; } .sg-n b { color: var(--tl-ink); }
+.sg-btns { margin-inline-start: auto; display: flex; gap: .25rem; }
+.sg-btns button { border: 1px solid var(--tl-line); background: #fff; border-radius: 8px; height: 28px; min-width: 28px; padding: 0 .45rem; font-size: .75rem; font-weight: 700; color: var(--tl-ink); transition: all .15s; }
+.sg-btns button:hover { border-color: #6366f1; color: #6366f1; }
+.sg-btns button.rm:hover { background: #ef4444; border-color: #ef4444; color: #fff; }
+.sg-chips { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .35rem; }
+.sg-chips span { display: inline-flex; align-items: center; gap: .25rem; background: #f1f5f9; border-radius: 999px; padding: .1rem .2rem .1rem .55rem; font-size: .74rem; animation: spIn .25s ease both; }
+.sg-chips em { font-style: normal; font-weight: 900; color: #4f46e5; }
+.sg-chips button { border: 0; background: transparent; color: #94a3b8; width: 18px; height: 18px; border-radius: 50%; font-size: .62rem; line-height: 1; }
+.sg-chips button:hover { background: #ef4444; color: #fff; }
+.sg-add { display: flex; gap: .35rem; margin-bottom: .55rem; }
+.sg-add .form-select { border-radius: 10px; }
+.sg-add .btn { border-radius: 10px; white-space: nowrap; }
 .sp-sug-add { width: 100%; padding: .55rem; }
 .sp-sug-add:disabled { opacity: .5; }
 

@@ -4,10 +4,16 @@ require __DIR__ . '/inc/sales.php';
 require_role('store');
 
 $type = ($_GET['type'] ?? '') === 'return' ? 'return' : 'sale';
-$customers = q("SELECT id, code, name FROM parties WHERE active=1 AND type='customer' ORDER BY name")->fetchAll();
+// customers with what the picker shows: phone, balance, how many invoices and the last one
+$customers = q("SELECT p.id, p.code, p.name, p.phone,
+                  (SELECT COUNT(*) FROM sales_invoices s WHERE s.customer_id=p.id AND s.voided=0 AND s.type='sale') n_inv,
+                  (SELECT MAX(s.inv_date) FROM sales_invoices s WHERE s.customer_id=p.id AND s.voided=0) last_inv
+                FROM parties p WHERE p.active=1 AND p.type='customer' ORDER BY p.name")->fetchAll();
+foreach ($customers as &$c) $c['bal'] = party_balance((int)$c['id']);
+unset($c);
 $manualItems = q("SELECT id, code, name, unit FROM items WHERE active=1 ORDER BY type, code")->fetchAll();
 $pageTitle = $type === 'sale' ? 'فاتورة بيع جديدة' : 'مرتجع بيع جديد';
-$pageScripts = ['assets/sale.js?v=' . filemtime(__DIR__ . '/assets/sale.js')];
+$pageScripts = ['assets/cust_pick.js?v=' . filemtime(__DIR__ . '/assets/cust_pick.js'), 'assets/sale.js?v=' . filemtime(__DIR__ . '/assets/sale.js')];
 require __DIR__ . '/inc/header.php';
 $isSale = $type === 'sale';
 ?>
@@ -42,14 +48,15 @@ $isSale = $type === 'sale';
         <div class="row g-3">
           <div class="col-md-8"><label class="form-label">العميل</label>
             <div class="sl-ig"><i class="bi bi-person"></i><select id="customer" class="form-select form-select-lg"><option value="">— اختر العميل —</option>
-              <?php foreach ($customers as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['name']) ?><?= $c['code'] ? ' (' . e($c['code']) . ')' : '' ?></option><?php endforeach; ?></select></div></div>
+              <?php foreach ($customers as $c): ?><option value="<?= $c['id'] ?>" data-name="<?= e($c['name']) ?>" data-code="<?= e((string)$c['code']) ?>" data-phone="<?= e((string)$c['phone']) ?>"
+                data-bal="<?= round((float)$c['bal'], 2) ?>" data-n="<?= (int)$c['n_inv'] ?>" data-last="<?= e((string)$c['last_inv']) ?>"><?= e($c['name']) ?><?= $c['code'] ? ' (' . e($c['code']) . ')' : '' ?></option><?php endforeach; ?></select></div></div>
           <div class="col-md-4"><label class="form-label">التاريخ</label><div class="sl-ig"><i class="bi bi-calendar-event"></i><input id="invDate" type="date" class="form-control form-control-lg" value="<?= date('Y-m-d') ?>"></div></div>
         </div>
         <?php if ($isSale): ?>
         <div class="sl-kind" role="group" aria-label="نوع المستند">
-          <input type="radio" class="btn-check" name="kind" id="kindInvoice" value="invoice" checked>
+          <input type="radio" class="btn-check" name="kind" id="kindInvoice" value="invoice">
           <label for="kindInvoice" class="k-inv"><i class="bi bi-receipt"></i><b>فاتورة بيع</b><small>بسعر — بتتحسب على العميل</small></label>
-          <input type="radio" class="btn-check" name="kind" id="kindDelivery" value="delivery">
+          <input type="radio" class="btn-check" name="kind" id="kindDelivery" value="delivery" checked>
           <label for="kindDelivery" class="k-del"><i class="bi bi-truck"></i><b>إذن تسليم / مذكرة إخراج</b><small>بدون سعر — بتتطبع على طول</small></label>
         </div>
         <?php endif; ?>
@@ -90,6 +97,7 @@ $isSale = $type === 'sale';
               <select id="sugCount" class="form-select"><option value="">— النمرة —</option></select>
               <button type="button" class="btn sp-sug-go" id="sugGo"><i class="bi bi-stars"></i> اقترح</button>
             </div>
+            <label class="sp-sug-opt"><input type="checkbox" id="sugMix" class="form-check-input" checked> كمّل الفرق من <b>المتعدد</b> بتاع نفس النمرة (عشان يطلع مع الشغل)</label>
             <div id="sugBox"></div>
           </div>
           <div class="sp-sum" id="pickSum"></div>
