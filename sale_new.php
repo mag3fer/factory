@@ -9,106 +9,142 @@ $manualItems = q("SELECT id, code, name, unit FROM items WHERE active=1 ORDER BY
 $pageTitle = $type === 'sale' ? 'فاتورة بيع جديدة' : 'مرتجع بيع جديد';
 $pageScripts = ['assets/sale.js?v=' . filemtime(__DIR__ . '/assets/sale.js')];
 require __DIR__ . '/inc/header.php';
+$isSale = $type === 'sale';
 ?>
-<style>
-.scan-box { position: relative; }
-.scan-box input { height: 64px; font-size: 1.6rem; font-weight: 700; direction: ltr; text-align: center; letter-spacing: 2px; border-radius: 14px; border: 2px dashed #94a3b8; }
-.scan-box input:focus { border-style: solid; border-color: var(--tl-cyan); }
-.scan-box .beam { position: absolute; left: 12px; right: 12px; top: 50%; height: 2px; background: linear-gradient(90deg, transparent, #ef4444, transparent); opacity: .0; pointer-events: none; }
-.scan-box input:focus + .beam { animation: beam 1.6s ease-in-out infinite; }
-@keyframes beam { 0%, 100% { transform: translateY(-22px); opacity: .7; } 50% { transform: translateY(22px); opacity: .7; } }
-.pkg-row-new { animation: rowIn .5s ease; }
-@keyframes rowIn { from { background: #dcfce7; transform: translateX(-12px); } to { background: transparent; transform: none; } }
-.total-big { font-size: 2rem; font-weight: 800; direction: ltr; }
-.sale-mode { border-top: 4px solid <?= $type === 'sale' ? 'var(--tl-green)' : 'var(--tl-amber)' ?>; }
-#sale.delivery .price-only { display: none !important; }
-#sale.delivery .delivery-only { display: block !important; }
-#sale.delivery .sale-mode { border-top-color: var(--tl-blue); }
-</style>
-<div id="sale" data-type="<?= $type ?>" data-csrf="<?= csrf_token() ?>">
-<div class="page-head">
-  <h4><i class="bi bi-<?= $type === 'sale' ? 'upc-scan' : 'arrow-return-right' ?>"></i> <?= $pageTitle ?></h4>
-  <div><a class="btn btn-outline-secondary btn-sm" href="sale_new.php?type=<?= $type === 'sale' ? 'return' : 'sale' ?>"><?= $type === 'sale' ? 'عمل مرتجع بدل كده' : 'فاتورة بيع بدل كده' ?></a></div>
-</div>
-<div class="row g-3">
-  <div class="col-xl-8">
-    <div class="card p-3 mb-3 sale-mode reveal">
-      <div class="row g-2">
-        <div class="col-md-6"><label class="form-label">العميل</label>
-          <select id="customer" class="form-select form-select-lg"><option value="">— اختر العميل —</option>
-            <?php foreach ($customers as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['name']) ?><?= $c['code'] ? ' (' . e($c['code']) . ')' : '' ?></option><?php endforeach; ?></select></div>
-        <div class="col-md-3"><label class="form-label">التاريخ</label><input id="invDate" type="date" class="form-control form-control-lg" value="<?= date('Y-m-d') ?>"></div>
-        <div class="col-md-3 d-flex align-items-end"><div class="w-100 small text-muted" id="custBalance"></div></div>
+<link rel="stylesheet" href="assets/sale.css?v=<?= filemtime(__DIR__ . '/assets/sale.css') ?>">
+<link rel="stylesheet" href="assets/sale_pick.css?v=<?= filemtime(__DIR__ . '/assets/sale_pick.css') ?>">
+<div id="sale" class="sl <?= $isSale ? 'is-sale' : 'is-return' ?>" data-type="<?= $type ?>" data-csrf="<?= csrf_token() ?>">
+
+  <!-- ===== header ===== -->
+  <section class="sl-hero reveal">
+    <div class="sl-hero-bg"><i></i><i></i></div>
+    <div class="sl-hero-main">
+      <div class="sl-hero-id">
+        <div class="sl-hero-ic"><i class="bi bi-<?= $isSale ? 'receipt-cutoff' : 'arrow-return-right' ?>" id="heroIcon"></i></div>
+        <div><h3 id="heroTitle"><?= $pageTitle ?></h3><div class="sl-hero-sub" id="heroSub"><?= $isSale ? 'امسح الكراتين أو اختار البالتات من المخزن، حط الأسعار واحفظ' : 'امسح الكراتين اللي رجعت من العميل واحفظ المرتجع' ?></div></div>
       </div>
-      <?php if ($type === 'sale'): ?>
-      <div class="btn-group mt-3" role="group" aria-label="نوع المستند">
-        <input type="radio" class="btn-check" name="kind" id="kindInvoice" value="invoice" checked><label class="btn btn-outline-success" for="kindInvoice"><i class="bi bi-receipt"></i> فاتورة بيع (بسعر)</label>
-        <input type="radio" class="btn-check" name="kind" id="kindDelivery" value="delivery"><label class="btn btn-outline-primary" for="kindDelivery"><i class="bi bi-truck"></i> إذن تسليم / مذكرة إخراج (بدون سعر)</label>
-      </div>
-      <?php endif; ?>
-      <div class="row g-2 mt-1">
-        <div class="col-md-3"><label class="form-label">الجهة المستلمة</label><input id="receiver" class="form-control" maxlength="150" placeholder="مثال: مصنع الكوثر - العاشر"></div>
-        <div class="col-md-3"><label class="form-label">اسم السائق</label><input id="driverName" class="form-control" maxlength="100"></div>
-        <div class="col-md-3"><label class="form-label">رقم السيارة</label><input id="carNo" class="form-control" maxlength="50"></div>
-        <div class="col-md-3"><label class="form-label">هاتف مندوب الاستلام <span class="text-muted small">(مش تبعنا — للسائق)</span></label><input id="contactPhone" class="form-control num" maxlength="40" inputmode="tel" dir="ltr"></div>
-        <div class="col-md-3"><label class="form-label">المنظم</label><input id="organizer" class="form-control" maxlength="100" placeholder="اختياري - لو فاضي بيتسيب فاضي"></div>
-      </div>
+      <a class="btn sl-switch" href="sale_new.php?type=<?= $isSale ? 'return' : 'sale' ?>"><i class="bi bi-arrow-left-right"></i> <?= $isSale ? 'عمل مرتجع بدل كده' : 'فاتورة بيع بدل كده' ?></a>
     </div>
-    <div class="card p-3 mb-3 reveal">
-      <label class="form-label fw-bold"><i class="bi bi-upc"></i> امسح باركود الكرتونة <?= $type === 'return' ? 'المرتجعة' : '' ?> (أو اكتبه ودوس Enter)</label>
-      <div class="scan-box"><input id="scan" class="form-control" autocomplete="off" placeholder="2610110001"><div class="beam"></div></div>
-      <div id="scanMsg" class="mt-2"></div>
-      <?php if ($type === 'sale'): ?>
-      <div class="mt-3"><button type="button" class="btn btn-outline-primary" id="btnPick"><i class="bi bi-boxes"></i> اختيار من المخزن (بالتات وكراتين) من غير باركود</button></div>
-      <link rel="stylesheet" href="assets/sale_pick.css?v=<?= filemtime(__DIR__ . '/assets/sale_pick.css') ?>">
-      <div id="pickPanel" class="sp-panel mt-3 d-none">
-        <div class="sp-bar">
-          <div class="sp-search"><i class="bi bi-search"></i><input id="pickFilter" class="form-control" placeholder="ابحث بالنمرة أو الصنف أو رقم البالتة أو الكرتونة أو اللوط"></div>
-          <div class="sp-chips" id="pickChips">
-            <button type="button" data-f="all" class="on">الكل</button><button type="button" data-f="carton"><i class="bi bi-box-seam"></i> كراتين</button><button type="button" data-f="sack"><i class="bi bi-bag"></i> شكاير</button>
-            <button type="button" data-f="std">نظامي</button><button type="button" data-f="mixed">متعدد</button><button type="button" data-f="full">بالتات كاملة</button>
-          </div>
-          <button type="button" class="btn btn-outline-secondary sp-reload" id="pickReload" title="تحديث"><i class="bi bi-arrow-repeat"></i></button>
+    <ol class="sl-steps" id="steps">
+      <li data-s="customer"><span>1</span>العميل</li>
+      <li data-s="goods"><span>2</span><?= $isSale ? 'الكراتين' : 'المرتجع' ?></li>
+      <li data-s="price" class="price-only"><span>3</span>الأسعار</li>
+      <li data-s="save"><span>4</span>الحفظ</li>
+    </ol>
+  </section>
+
+  <div class="sl-grid">
+    <div class="sl-main">
+
+      <!-- ===== customer & document ===== -->
+      <section class="sl-card sale-mode reveal">
+        <div class="sl-card-h"><h6><i class="bi bi-person-badge"></i> بيانات <?= $isSale ? 'الفاتورة' : 'المرتجع' ?></h6><span class="sl-bal" id="custBalance"></span></div>
+        <div class="row g-3">
+          <div class="col-md-8"><label class="form-label">العميل</label>
+            <div class="sl-ig"><i class="bi bi-person"></i><select id="customer" class="form-select form-select-lg"><option value="">— اختر العميل —</option>
+              <?php foreach ($customers as $c): ?><option value="<?= $c['id'] ?>"><?= e($c['name']) ?><?= $c['code'] ? ' (' . e($c['code']) . ')' : '' ?></option><?php endforeach; ?></select></div></div>
+          <div class="col-md-4"><label class="form-label">التاريخ</label><div class="sl-ig"><i class="bi bi-calendar-event"></i><input id="invDate" type="date" class="form-control form-control-lg" value="<?= date('Y-m-d') ?>"></div></div>
         </div>
-        <div class="sp-sum" id="pickSum"></div>
-        <div id="pickList" class="sp-list"></div>
+        <?php if ($isSale): ?>
+        <div class="sl-kind" role="group" aria-label="نوع المستند">
+          <input type="radio" class="btn-check" name="kind" id="kindInvoice" value="invoice" checked>
+          <label for="kindInvoice" class="k-inv"><i class="bi bi-receipt"></i><b>فاتورة بيع</b><small>بسعر — بتتحسب على العميل</small></label>
+          <input type="radio" class="btn-check" name="kind" id="kindDelivery" value="delivery">
+          <label for="kindDelivery" class="k-del"><i class="bi bi-truck"></i><b>إذن تسليم / مذكرة إخراج</b><small>بدون سعر — بتتطبع على طول</small></label>
+        </div>
+        <?php endif; ?>
+        <div class="sl-sub"><i class="bi bi-truck"></i> بيانات التسليم <small>(اختياري)</small></div>
+        <div class="row g-2">
+          <div class="col-md-4"><div class="sl-ig sm"><i class="bi bi-building"></i><input id="receiver" class="form-control" maxlength="150" placeholder="الجهة المستلمة — مثال: مصنع الكوثر"></div></div>
+          <div class="col-md-4"><div class="sl-ig sm"><i class="bi bi-person-vcard"></i><input id="driverName" class="form-control" maxlength="100" placeholder="اسم السائق"></div></div>
+          <div class="col-md-4"><div class="sl-ig sm"><i class="bi bi-car-front"></i><input id="carNo" class="form-control" maxlength="50" placeholder="رقم السيارة"></div></div>
+          <div class="col-md-6"><div class="sl-ig sm"><i class="bi bi-telephone"></i><input id="contactPhone" class="form-control num" maxlength="40" inputmode="tel" dir="ltr" placeholder="هاتف مندوب الاستلام (مش تبعنا — للسائق)"></div></div>
+          <div class="col-md-6"><div class="sl-ig sm"><i class="bi bi-person-gear"></i><input id="organizer" class="form-control" maxlength="100" placeholder="المنظم — اختياري"></div></div>
+        </div>
+      </section>
+
+      <!-- ===== add goods ===== -->
+      <section class="sl-card reveal">
+        <div class="sl-card-h"><h6><i class="bi bi-upc-scan"></i> <?= $isSale ? 'إضافة الكراتين' : 'الكراتين المرتجعة' ?></h6><span class="sl-hint"><kbd>Enter</kbd> بعد الكود — وكود البالتة بيضيفها كلها</span></div>
+        <div class="scan-box">
+          <i class="bi bi-upc sb-ic"></i>
+          <input id="scan" class="form-control" autocomplete="off" placeholder="امسح باركود الكرتونة أو البالتة">
+          <div class="beam"></div><span class="sb-corner c1"></span><span class="sb-corner c2"></span><span class="sb-corner c3"></span><span class="sb-corner c4"></span>
+        </div>
+        <div id="scanMsg" class="mt-2"></div>
+        <?php if ($isSale): ?>
+        <button type="button" class="sl-pick-btn" id="btnPick"><span class="pb-ic"><i class="bi bi-boxes"></i></span><span><b>اختيار من المخزن</b><small>بالتات وكراتين وشكاير من غير باركود — بكل تفاصيلها</small></span><i class="bi bi-chevron-down pb-arrow"></i></button>
+        <div id="pickPanel" class="sp-panel mt-3 d-none">
+          <div class="sp-bar">
+            <div class="sp-search"><i class="bi bi-search"></i><input id="pickFilter" class="form-control" placeholder="ابحث بالنمرة أو الصنف أو رقم البالتة أو الكرتونة أو اللوط"></div>
+            <div class="sp-chips" id="pickChips">
+              <button type="button" data-f="all" class="on">الكل</button><button type="button" data-f="carton"><i class="bi bi-box-seam"></i> كراتين</button><button type="button" data-f="sack"><i class="bi bi-bag"></i> شكاير</button>
+              <button type="button" data-f="std">نظامي</button><button type="button" data-f="mixed">متعدد</button><button type="button" data-f="full">بالتات كاملة</button>
+            </div>
+            <button type="button" class="btn btn-outline-secondary sp-reload" id="pickReload" title="تحديث"><i class="bi bi-arrow-repeat"></i></button>
+          </div>
+          <div class="sp-sug">
+            <div class="sp-sug-h"><i class="bi bi-magic"></i><b>العميل طالب كمية معيّنة؟</b><span>اكتبها والنظام يقترح البالتات والكراتين المناسبة (الأقدم الأول)</span></div>
+            <div class="sp-sug-f">
+              <div class="input-group"><input id="sugQty" type="number" min="0" step="0.01" class="form-control num" placeholder="مثال: 5"><select id="sugUnit" class="form-select" style="max-width:90px"><option value="1000">طن</option><option value="1">كيلو</option></select></div>
+              <select id="sugCount" class="form-select"><option value="">— النمرة —</option></select>
+              <button type="button" class="btn sp-sug-go" id="sugGo"><i class="bi bi-stars"></i> اقترح</button>
+            </div>
+            <div id="sugBox"></div>
+          </div>
+          <div class="sp-sum" id="pickSum"></div>
+          <div id="pickList" class="sp-list"></div>
+        </div>
+        <?php endif; ?>
+      </section>
+
+      <!-- ===== invoice content ===== -->
+      <section class="sl-card p-0 reveal">
+        <div class="sl-card-h px-3 pt-3"><h6><i class="bi bi-box-seam"></i> محتوى <?= $isSale ? 'الفاتورة' : 'المرتجع' ?></h6></div>
+        <div class="sl-kpis px-3">
+          <div><b id="pkgCount">0</b><span>كرتونة / شكارة</span></div>
+          <div><b class="num" id="pkgKg">0</b><span>كيلو صافي</span></div>
+          <div><b id="palCount">0</b><span>بالتة</span></div>
+          <div><b id="itemCount">0</b><span>نمرة</span></div>
+        </div>
+        <div class="px-3" id="palChips"></div>
+        <div class="table-responsive sl-table-wrap">
+          <table class="table table-sm table-hover sl-table" id="pkgTable">
+            <thead><tr><th>#</th><th>الباركود</th><th>الكود</th><th>النمرة</th><th>كونات</th><th>صافي (كيلو)</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="sl-empty" id="pkgEmpty"><i class="bi bi-upc-scan"></i><b>لسه مفيش كراتين</b><span><?= $isSale ? 'امسح باركود أو اختار من المخزن' : 'امسح باركود الكرتونة المرتجعة' ?></span></div>
+        </div>
+      </section>
+
+      <section class="sl-card reveal">
+        <div class="sl-card-h"><h6><i class="bi bi-list-ul"></i> أصناف من غير باركود <small class="text-muted">(عوادم، كونات، ...)</small></h6><button class="btn btn-sm btn-outline-primary" id="addManual"><i class="bi bi-plus-lg"></i> صنف</button></div>
+        <table class="table table-sm sl-table mb-0" id="manualTable"><thead><tr><th style="width:50%">الصنف</th><th>الكمية</th><th class="price-only">السعر</th><th class="price-only">الإجمالي</th><th></th></tr></thead><tbody></tbody></table>
+      </section>
+    </div>
+
+    <!-- ===== summary ===== -->
+    <aside class="sl-side">
+      <div class="sl-sum reveal">
+        <div class="sl-sum-h"><span><i class="bi bi-calculator"></i> ملخص <?= $isSale ? 'الفاتورة' : 'المرتجع' ?></span><b id="sumCustomer">— لسه ما اخترتش عميل —</b></div>
+        <div class="price-only">
+          <div class="sl-sub mt-0"><i class="bi bi-tag"></i> الأسعار حسب النمرة</div>
+          <table class="table table-sm sl-price" id="priceTable"><thead><tr><th>النمرة</th><th>كيلو</th><th style="width:34%">سعر الكيلو</th><th>الإجمالي</th></tr></thead><tbody></tbody></table>
+          <div class="sl-line"><span>الإجمالي</span><b class="num" id="subtotal">0.00</b></div>
+          <div class="sl-ig sm mb-2"><i class="bi bi-tag"></i><input id="discount" type="number" step="0.01" min="0" class="form-control num" value="0" placeholder="خصم"></div>
+          <div class="sl-total"><span>الصافي</span><div class="total-big" id="total">0.00</div><small>جنيه</small></div>
+          <div class="input-group mb-2 sl-pay"><span class="input-group-text"><?= $isSale ? 'مدفوع دلوقتي' : 'اترجع للعميل' ?></span><input id="paid" type="number" step="0.01" min="0" class="form-control num" value="0">
+            <select id="payMethod" class="form-select" style="max-width:110px"><?php foreach (PAY_METHODS as $k => $l): ?><option value="<?= $k ?>"><?= $l ?></option><?php endforeach; ?></select></div>
+          <div class="sl-line rest"><span><?= $isSale ? 'الباقي على العميل' : 'الباقي للعميل' ?></span><b class="num" id="restAmt">0.00</b></div>
+        </div>
+        <div class="delivery-only d-none"><div class="sl-total del"><span>إجمالي الوزن</span><div class="total-big"><span id="kgBig">0.000</span></div><small>كيلو</small></div></div>
+        <div class="sl-ig sm my-2"><i class="bi bi-chat-left-text"></i><input id="notes" class="form-control" placeholder="ملاحظات"></div>
+        <button class="sl-save" id="btnSave" disabled><i class="bi bi-check2-circle"></i> حفظ <?= $isSale ? 'الفاتورة' : 'المرتجع' ?></button>
+        <div class="sl-why" id="saveWhy"></div>
+        <div id="saveMsg" class="mt-2"></div>
       </div>
-      <?php endif; ?>
-    </div>
-    <div class="card p-0 mb-3 reveal">
-      <div class="p-3 pb-2 card-title-row"><h6>الكراتين (<span id="pkgCount">0</span>)</h6><span class="text-muted small">إجمالي الوزن: <b class="num" id="pkgKg">0</b> كيلو</span></div>
-      <div class="px-3" id="palChips"></div>
-      <div class="table-responsive" style="max-height:340px">
-      <table class="table table-sm table-hover" id="pkgTable">
-        <thead><tr><th>#</th><th>الباركود</th><th>الكود</th><th>النمرة</th><th>كونات</th><th>صافي (كيلو)</th><th></th></tr></thead>
-        <tbody></tbody>
-      </table>
-      </div>
-    </div>
-    <div class="card p-3 reveal">
-      <div class="card-title-row"><h6>أصناف من غير باركود (عوادم، كونات، ...)</h6><button class="btn btn-sm btn-outline-secondary" id="addManual"><i class="bi bi-plus"></i> صنف</button></div>
-      <table class="table table-sm" id="manualTable"><thead><tr><th style="width:50%">الصنف</th><th>الكمية</th><th class="price-only">السعر</th><th class="price-only">الإجمالي</th><th></th></tr></thead><tbody></tbody></table>
-    </div>
+    </aside>
   </div>
-  <div class="col-xl-4">
-    <div class="card p-3 reveal" style="position:sticky;top:80px">
-      <div class="price-only">
-      <h6 class="fw-bold">الأسعار حسب النمرة</h6>
-      <table class="table table-sm" id="priceTable"><thead><tr><th>النمرة</th><th>كيلو</th><th style="width:34%">سعر الكيلو</th><th>الإجمالي</th></tr></thead><tbody></tbody></table>
-      <hr>
-      <div class="d-flex justify-content-between mb-2"><span>الإجمالي</span><b class="num" id="subtotal">0.00</b></div>
-      <div class="input-group input-group-sm mb-2"><span class="input-group-text">خصم</span><input id="discount" type="number" step="0.01" min="0" class="form-control num" value="0"></div>
-      <div class="text-center my-2"><div class="text-muted small">الصافي</div><div class="total-big text-<?= $type === 'sale' ? 'success' : 'warning' ?>" id="total">0.00</div></div>
-      <div class="input-group input-group-sm mb-2"><span class="input-group-text"><?= $type === 'sale' ? 'مدفوع دلوقتي' : 'اترجع للعميل' ?></span><input id="paid" type="number" step="0.01" min="0" class="form-control num" value="0">
-        <select id="payMethod" class="form-select" style="max-width:110px"><?php foreach (PAY_METHODS as $k => $l): ?><option value="<?= $k ?>"><?= $l ?></option><?php endforeach; ?></select></div>
-      </div>
-      <div class="delivery-only text-center my-2 d-none"><div class="text-muted small">إجمالي الوزن</div><div class="total-big text-primary"><span id="kgBig">0.000</span> <small class="fs-6">كيلو</small></div></div>
-      <input id="notes" class="form-control form-control-sm mb-3" placeholder="ملاحظات">
-      <button class="btn btn-<?= $type === 'sale' ? 'success' : 'warning' ?> btn-lg w-100" id="btnSave" disabled><i class="bi bi-check2-circle"></i> حفظ <?= $type === 'sale' ? 'الفاتورة' : 'المرتجع' ?></button>
-      <div id="saveMsg" class="mt-2"></div>
-    </div>
-  </div>
-</div>
 </div>
 <template id="manualTpl"><tr>
   <td><select class="form-select form-select-sm m-item"><option value="">— اختر —</option><?php foreach ($manualItems as $i): ?><option value="<?= $i['id'] ?>"><?= e($i['code'] . ' — ' . $i['name']) ?> (<?= UNITS[$i['unit']] ?>)</option><?php endforeach; ?></select></td>

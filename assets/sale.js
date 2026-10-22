@@ -8,6 +8,9 @@
   document.querySelectorAll('input[name="kind"]').forEach(r => r.addEventListener('change', () => {
     root.classList.toggle('delivery', isDelivery());
     $('btnSave').innerHTML = isDelivery() ? '<i class="bi bi-printer"></i> حفظ وطباعة الإذن' : '<i class="bi bi-check2-circle"></i> حفظ الفاتورة';
+    $('heroTitle').textContent = isDelivery() ? 'إذن تسليم / مذكرة إخراج' : 'فاتورة بيع جديدة';
+    $('heroSub').textContent = isDelivery() ? 'إذن من غير أسعار — بيتحفظ ويتطبع على طول' : 'امسح الكراتين أو اختار البالتات من المخزن، حط الأسعار واحفظ';
+    $('heroIcon').className = 'bi bi-' + (isDelivery() ? 'truck' : 'receipt-cutoff');
     totals();
   }));
   const fmt = (v, d = 2) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -107,7 +110,80 @@
     $('pickSum').innerHTML = '';
     const r = await api('stock_list');
     if (!r.ok) { $('pickList').innerHTML = `<div class="alert alert-danger">${esc(r.error)}</div>`; return; }
-    stock = r.groups; drawStock(true);
+    stock = r.groups; drawStock(true); fillSugCounts();
+  }
+
+  // ---------- suggest what to pick for a requested quantity ----------
+  // Whole pallets first (oldest production first), then the closest number of cartons from a pallet that is already short
+  // (or, if none, the oldest full pallet), so the total lands as close as possible to what the customer asked for.
+  let sug = null;
+  function fillSugCounts() {
+    const sel = $('sugCount'); if (!sel) return;
+    const prev = sel.value, by = {};
+    stock.forEach(g => {
+      const pk = g.packages.filter(p => !pkgs.has(p.id)); if (!pk.length) return;
+      by[g.code] = by[g.code] || { spec: g.spec, kg: 0 };
+      by[g.code].kg += pk.reduce((s, p) => s + p.net, 0);
+    });
+    sel.innerHTML = '<option value="">— النمرة —</option>' + Object.entries(by).sort((a, b) => b[1].kg - a[1].kg)
+      .map(([c, v]) => `<option value="${esc(c)}">${esc(c)} — ${esc(v.spec)} (متاح ${fmt(v.kg / 1000, 2)} طن)</option>`).join('');
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+    else if (sel.options.length === 2) sel.selectedIndex = 1;
+  }
+  function suggest() {
+    const target = (parseFloat($('sugQty').value) || 0) * Number($('sugUnit').value);
+    const code = $('sugCount').value;
+    if (target <= 0) return sugMsg('اكتب الكمية المطلوبة');
+    if (!code) return sugMsg('اختار النمرة');
+    // respect the packing / type chips (كراتين / شكاير / نظامي / متعدد); default to نظامي when nothing is chosen
+    const okG = g => g.code === code && (chip === 'carton' ? !g.sack : chip === 'sack' ? !!g.sack : true)
+      && (chip === 'mixed' ? !!g.mixed : !g.mixed);
+    const cand = stock.map((g, gi) => ({ g, gi, pk: g.packages.filter(p => !pkgs.has(p.id)) })).filter(c => okG(c.g) && c.pk.length)
+      .map(c => ({ ...c, kg: c.pk.reduce((s, p) => s + p.net, 0), full: !!(c.g.pallet && c.g.capacity && c.pk.length >= c.g.capacity) }));
+    if (!cand.length) return sugMsg(chip === 'mixed' ? 'مفيش متعدد من النمرة دي' : 'مفيش نظامي من النمرة دي بالفلتر ده — لو عايز متعدد اختار «متعدد» فوق');
+    const byAge = (a, b) => String(a.g.from).localeCompare(String(b.g.from));
+    const fulls = cand.filter(c => c.full).sort(byAge), parts = cand.filter(c => !c.full).sort(byAge);
+    const pick = [], loose = [];
+    let total = 0;
+    for (const c of fulls) if (total + c.kg <= target + 0.001) { pick.push(c); total += c.kg; }
+    // cartons from a short pallet / loose group first, then break the oldest unused full pallet
+    const rest = [...parts, ...fulls.filter(c => !pick.includes(c))];
+    for (const c of rest) {
+      if (target - total < 0.5) break;
+      if (total + c.kg <= target + 0.001) { pick.push(c); total += c.kg; continue; }
+      for (const p of [...c.pk].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
+        if (Math.abs(total + p.net - target) >= Math.abs(total - target)) break;
+        loose.push({ p, c }); total += p.net;
+      }
+    }
+    const avail = cand.reduce((s, c) => s + c.kg, 0);
+    sug = { pick, loose, total, target };
+    const diff = total - target, n = pick.reduce((s, c) => s + c.pk.length, 0) + loose.length;
+    const looseBy = {};
+    loose.forEach(({ p, c }) => { const k = c.g.pallet || 'سايبة'; (looseBy[k] = looseBy[k] || []).push(p); });
+    $('sugBox').innerHTML = `<div class="sp-sug-r">
+      <div class="sp-sug-k"><div><b class="num">${fmt(total / 1000, 3)}</b><span>طن مقترح</span></div><div><b class="num">${fmt(target / 1000, 3)}</b><span>طن مطلوب</span></div>
+        <div class="${Math.abs(diff) < 50 ? 'ok' : diff < 0 ? 'lo' : 'hi'}"><b class="num">${diff >= 0 ? '+' : '−'}${fmt(Math.abs(diff), 1)}</b><span>كيلو فرق</span></div><div><b>${n}</b><span>كرتونة / شكارة</span></div></div>
+      ${avail < target ? `<div class="alert alert-warning py-1 px-2 small mb-2">المتاح من النمرة دي ${fmt(avail, 0)} كيلو بس — أقل من المطلوب</div>` : ''}
+      <div class="sp-sug-list">${pick.map(c => `<span class="sg-pal"><i class="bi bi-boxes"></i> ${c.g.pallet ? 'بالتة <b dir="ltr">' + esc(c.g.pallet) + '</b>' : 'سايبة'} · ${c.pk.length} ${c.g.sack ? 'شكارة' : 'كرتونة'} · ${fmt(c.kg, 1)} كجم</span>`).join('')}
+        ${Object.entries(looseBy).map(([k, ps]) => `<span class="sg-part"><i class="bi bi-box"></i> من ${k === 'سايبة' ? 'الكراتين السايبة' : 'بالتة <b dir="ltr">' + esc(k) + '</b>'}: ${ps.length} (${ps.map(p => p.seq || p.serial).join('، ')}) · ${fmt(ps.reduce((s, p) => s + p.net, 0), 1)} كجم</span>`).join('')}</div>
+      <button type="button" class="btn sp-sug-add" id="sugAdd"${n ? '' : ' disabled'}><i class="bi bi-cart-plus"></i> ضيف الاقتراح للفاتورة</button></div>`;
+  }
+  const sugMsg = t => { sug = null; $('sugBox').innerHTML = `<div class="small text-danger mt-2">${esc(t)}</div>`; };
+  if ($('sugGo')) {
+    $('sugGo').addEventListener('click', suggest);
+    $('sugQty').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); suggest(); } });
+    $('sugBox').addEventListener('click', async e => {
+      if (!e.target.closest('#sugAdd') || !sug) return;
+      const list = [];
+      sug.pick.forEach(c => c.pk.forEach(p => { p.pallet = c.g.pallet || null; list.push(p); }));
+      sug.loose.forEach(({ p, c }) => { p.pallet = c.g.pallet || null; list.push(p); });
+      const r = await addPackages(list);
+      beep(true);
+      msg(`<i class="bi bi-stars"></i> ضفت الاقتراح: <b>${r.added}</b> (<b class="num">${fmt(r.sum, 1)}</b> كيلو) — إجمالي الفاتورة دلوقتي <b>${pkgs.size}</b>`, 'success');
+      $('sugBox').innerHTML = ''; sug = null;
+      drawStock(); fillSugCounts();
+    });
   }
   function drawStock(first) {
     const f = $('pickFilter').value.trim().toLowerCase();
@@ -249,16 +325,20 @@
       i++; kg += p.net;
       const tr = document.createElement('tr');
       if (p.id === newId) tr.className = 'pkg-row-new';
-      tr.innerHTML = `<td>${pkgs.size - i + 1}</td><td class="num">${esc(p.serial)}</td><td>${esc(p.code)}</td><td class="small">${esc(p.name)}</td><td>${p.cones}</td>
+      tr.innerHTML = `<td><span class="sl-no">${pkgs.size - i + 1}</span></td><td class="num">${esc(p.serial)}${p.pallet ? `<small class="sl-pal" dir="ltr">${esc(p.pallet)}${p.seq ? ' · ' + p.seq : ''}</small>` : ''}</td><td><b>${esc(p.code)}</b></td><td class="small">${esc(p.name)}</td><td>${p.cones}</td>
         <td class="num fw-bold">${fmt(p.net, 3)}</td><td><button class="btn btn-sm btn-outline-danger del" data-id="${p.id}"><i class="bi bi-x"></i></button></td>`;
       tb.appendChild(tr);
     });
     const pal = {};
     pkgs.forEach(p => { if (p.pallet) { pal[p.pallet] = pal[p.pallet] || { n: 0, kg: 0 }; pal[p.pallet].n++; pal[p.pallet].kg += p.net; } });
-    $('palChips').innerHTML = Object.entries(pal).map(([s, v]) => `<span class="badge text-bg-primary fs-6 fw-normal me-1 mb-1">بالتة ${esc(s)} — ${v.n} كرتونة (${fmt(v.kg, 1)} كيلو) <button type="button" class="btn btn-sm btn-light py-0 px-1 ms-1 pal-del" data-p="${esc(s)}" title="شيل البالتة">✕</button></span>`).join('')
-      + (pkgs.size ? '<button type="button" class="btn btn-sm btn-outline-danger mb-1" id="clearAll">شيل كل الكراتين</button>' : '');
+    $('palChips').innerHTML = Object.entries(pal).map(([s, v]) => `<span class="sl-chip"><i class="bi bi-boxes"></i> بالتة <b dir="ltr">${esc(s)}</b> — ${v.n} (${fmt(v.kg, 1)} كيلو) <button type="button" class="pal-del" data-p="${esc(s)}" title="شيل البالتة">✕</button></span>`).join('')
+      + (pkgs.size ? '<button type="button" class="sl-chip clear" id="clearAll"><i class="bi bi-trash3"></i> شيل الكل</button>' : '');
     $('pkgCount').textContent = pkgs.size;
     $('pkgKg').textContent = fmt(kg, 3);
+    $('palCount').textContent = Object.keys(pal).length;
+    $('itemCount').textContent = groups().length;
+    $('pkgEmpty').classList.toggle('d-none', pkgs.size > 0);
+    $('pkgTable').classList.toggle('d-none', pkgs.size === 0);
 
     const pt = $('priceTable').querySelector('tbody');
     const focused = document.activeElement?.dataset?.item;
@@ -300,9 +380,18 @@
     const disc = Math.max(0, parseFloat($('discount').value) || 0);
     const total = Math.max(0, Math.round((sub - disc) * 100) / 100);
     $('subtotal').textContent = fmt(sub);
+    if ($('total').textContent !== fmt(total)) { $('total').classList.remove('bump'); void $('total').offsetWidth; $('total').classList.add('bump'); }
     $('total').textContent = fmt(total);
     if ($('kgBig')) $('kgBig').textContent = fmt(totalKg, 3);
-    $('btnSave').disabled = !($('customer').value && (pkgs.size || manualCount) && ok && disc <= sub);
+    $('restAmt').textContent = fmt(Math.max(0, total - (parseFloat($('paid').value) || 0)));
+    const hasCust = !!$('customer').value, hasGoods = !!(pkgs.size || manualCount), canSave = hasCust && hasGoods && ok && disc <= sub;
+    $('btnSave').disabled = !canSave;
+    // progress steps + why the save button is still locked
+    const st = { customer: hasCust, goods: hasGoods, price: hasGoods && ok, save: canSave };
+    document.querySelectorAll('#steps li').forEach(li => li.classList.toggle('done', !!st[li.dataset.s]));
+    const opt = $('customer').selectedOptions[0];
+    $('sumCustomer').textContent = hasCust ? opt.textContent : '— لسه ما اخترتش عميل —';
+    $('saveWhy').textContent = canSave ? '' : !hasCust ? 'اختار العميل الأول' : !hasGoods ? 'ضيف كراتين أو صنف' : !ok ? 'اكتب سعر لكل نمرة وكمية لكل صنف' : disc > sub ? 'الخصم أكبر من الإجمالي' : '';
   }
 
   // ---------- save ----------
