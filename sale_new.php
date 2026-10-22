@@ -60,9 +60,18 @@ require __DIR__ . '/inc/header.php';
       <div id="scanMsg" class="mt-2"></div>
       <?php if ($type === 'sale'): ?>
       <div class="mt-3"><button type="button" class="btn btn-outline-primary" id="btnPick"><i class="bi bi-boxes"></i> اختيار من المخزن (بالتات وكراتين) من غير باركود</button></div>
-      <div id="pickPanel" class="mt-3 d-none">
-        <div class="d-flex gap-2 mb-2"><input id="pickFilter" class="form-control form-control-sm" placeholder="فلتر: نمرة أو رقم بالتة أو رقم كرتونة"><button type="button" class="btn btn-sm btn-outline-secondary" id="pickReload"><i class="bi bi-arrow-repeat"></i></button></div>
-        <div id="pickList" style="max-height:420px;overflow:auto"></div>
+      <link rel="stylesheet" href="assets/sale_pick.css?v=<?= filemtime(__DIR__ . '/assets/sale_pick.css') ?>">
+      <div id="pickPanel" class="sp-panel mt-3 d-none">
+        <div class="sp-bar">
+          <div class="sp-search"><i class="bi bi-search"></i><input id="pickFilter" class="form-control" placeholder="ابحث بالنمرة أو الصنف أو رقم البالتة أو الكرتونة أو اللوط"></div>
+          <div class="sp-chips" id="pickChips">
+            <button type="button" data-f="all" class="on">الكل</button><button type="button" data-f="carton"><i class="bi bi-box-seam"></i> كراتين</button><button type="button" data-f="sack"><i class="bi bi-bag"></i> شكاير</button>
+            <button type="button" data-f="std">نظامي</button><button type="button" data-f="mixed">متعدد</button><button type="button" data-f="full">بالتات كاملة</button>
+          </div>
+          <button type="button" class="btn btn-outline-secondary sp-reload" id="pickReload" title="تحديث"><i class="bi bi-arrow-repeat"></i></button>
+        </div>
+        <div class="sp-sum" id="pickSum"></div>
+        <div id="pickList" class="sp-list"></div>
       </div>
       <?php endif; ?>
     </div>

@@ -98,65 +98,112 @@
     return { added, sum };
   }
   let stock = [];
-  const open = new Set();   // expanded pallets
+  const open = new Set();   // expanded groups
+  let chip = 'all';
+  const unit = g => g.sack ? 'شكارة' : 'كرتونة';
+  const dmy = t => t ? `${t.slice(8, 10)}/${t.slice(5, 7)}` : '';
   async function loadStock() {
-    $('pickList').innerHTML = '<div class="text-muted small">جاري التحميل...</div>';
+    $('pickList').innerHTML = '<div class="sp-skel">' + '<div></div>'.repeat(4) + '</div>';
+    $('pickSum').innerHTML = '';
     const r = await api('stock_list');
     if (!r.ok) { $('pickList').innerHTML = `<div class="alert alert-danger">${esc(r.error)}</div>`; return; }
-    stock = r.groups; drawStock();
+    stock = r.groups; drawStock(true);
   }
-  function drawStock() {
+  function drawStock(first) {
     const f = $('pickFilter').value.trim().toLowerCase();
-    let html = '';
+    let html = '', nG = 0, nP = 0, kgAll = 0, i = 0;
     stock.forEach((g, gi) => {
+      if (chip === 'carton' && g.sack) return;
+      if (chip === 'sack' && !g.sack) return;
+      if (chip === 'std' && g.mixed) return;
+      if (chip === 'mixed' && !g.mixed) return;
       const pk = g.packages.filter(p => !pkgs.has(p.id));
-      const match = !f || [g.pallet, g.code, g.name].some(x => String(x || '').toLowerCase().includes(f));
+      if (chip === 'full' && !(g.pallet && g.capacity && pk.length >= g.capacity)) return;
+      const match = !f || [g.pallet, g.code, g.name, g.spec, g.lot, g.grade].some(x => String(x || '').toLowerCase().includes(f));
       const shown = match ? pk : pk.filter(p => p.serial.includes(f) || String(p.seq || '') === f);
       if (!shown.length) return;
-      const kg = shown.reduce((s, p) => s + p.net, 0);
-      const title = g.pallet ? `بالتة ${esc(g.pallet)}` : 'كراتين سايبة (من غير بالتة)';
+      const kg = shown.reduce((s, p) => s + p.net, 0), cones = shown.reduce((s, p) => s + p.cones, 0);
+      nG++; nP += shown.length; kgAll += kg;
+      const cap = g.capacity || 0, pct = cap ? Math.min(100, Math.round(shown.length / cap * 100)) : 100;
+      const complete = cap && shown.length >= cap;
       const isOpen = open.has(gi) || (!!f && !match);
-      html += `<div class="border rounded mb-2"><div class="d-flex align-items-center gap-2 p-2 bg-light flex-wrap">
-        <b>${title}</b><span class="badge text-bg-secondary">${esc(g.code)}</span><span class="small text-muted">${shown.length}${g.capacity ? ' / ' + g.capacity : ''} كرتونة — <b class="num">${fmt(kg, 2)}</b> كيلو</span>
-        <span class="ms-auto d-flex gap-1"><button type="button" class="btn btn-sm btn-success pk-all" data-g="${gi}"><i class="bi bi-plus-lg"></i> البالتة كلها</button>
-        <button type="button" class="btn btn-sm btn-outline-secondary pk-toggle" data-g="${gi}">${isOpen ? 'إخفاء' : 'اختيار كراتين'}</button></span></div>`;
+      const days = dmy(g.from) === dmy(g.to) ? dmy(g.from) : `${dmy(g.from)} — ${dmy(g.to)}`;
+      html += `<div class="sp-card ${g.sack ? 'is-sack' : 'is-ctn'} ${first ? 'enter' : ''}" style="--d:${Math.min(i++, 12) * 40}ms" data-g="${gi}">
+        <div class="sp-top">
+          <div class="sp-id">
+            <div class="sp-ic"><i class="bi ${g.pallet ? 'bi-boxes' : 'bi-box'}"></i></div>
+            <div><div class="sp-pal">${g.pallet ? `بالتة <b dir="ltr">${esc(g.pallet)}</b>` : `${unit(g) === 'شكارة' ? 'شكاير' : 'كراتين'} سايبة`}</div>
+              <div class="sp-tags"><span class="t-pk">${unit(g)}</span><span class="${g.mixed ? 't-mix' : 't-std'}">${g.mixed ? 'متعدد' : 'نظامي'}</span>${g.pallet ? (complete ? '<span class="t-full">كاملة</span>' : `<span class="t-part">ناقصة ${cap - shown.length}</span>`) : ''}</div></div>
+          </div>
+          <div class="sp-fill" title="${shown.length} من ${cap || shown.length}"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" class="trk"/><circle cx="18" cy="18" r="15.5" class="bar" style="--p:${pct}"/></svg><b>${shown.length}${cap ? `<small>/${cap}</small>` : ''}</b></div>
+        </div>
+        <div class="sp-item"><b class="num">${esc(g.code)}</b><span>${esc(g.spec)}</span><small>${esc(g.name)}</small></div>
+        <div class="sp-stats">
+          <div><b class="num">${fmt(kg, 1)}</b><span>كيلو صافي</span></div>
+          <div><b class="num">${cones}</b><span>كونة</span></div>
+          <div><b class="num">${fmt(kg / shown.length, 2)}</b><span>متوسط ال${unit(g)}</span></div>
+          <div><b class="num">${esc(days)}</b><span>اتنتجت</span></div>
+        </div>
+        ${g.lot || g.grade || g.cone ? `<div class="sp-meta">${g.lot ? `<span><i class="bi bi-upc"></i> لوط <b dir="ltr">${esc(g.lot)}</b></span>` : ''}${g.grade ? `<span><i class="bi bi-award"></i> درجة <b>${esc(g.grade)}</b></span>` : ''}${g.cone ? `<span><i class="bi bi-record-circle"></i> ${esc(g.cone)}</span>` : ''}</div>` : ''}
+        <div class="sp-act">
+          <button type="button" class="btn btn-success pk-all" data-g="${gi}"><i class="bi bi-plus-lg"></i> ${g.pallet ? 'ضيف البالتة كلها' : 'ضيفهم كلهم'} <small>(${shown.length} ${unit(g)})</small></button>
+          <button type="button" class="btn btn-outline-secondary pk-toggle" data-g="${gi}"><i class="bi ${isOpen ? 'bi-chevron-up' : 'bi-ui-checks-grid'}"></i> ${isOpen ? 'إخفاء' : 'اختار بالواحدة'}</button>
+        </div>`;
       if (isOpen) {
-        html += `<div class="p-2"><div class="d-flex flex-wrap gap-2">` + shown.map(p => `<label class="border rounded px-2 py-1 small" style="cursor:pointer">
-          <input type="checkbox" class="pk-chk" data-g="${gi}" data-id="${p.id}"> ${p.seq ? '<b>' + p.seq + '</b> · ' : ''}<span class="num">${esc(p.serial)}</span> · <b class="num">${fmt(p.net, 2)}</b></label>`).join('') + `</div>
-          <div class="mt-2"><button type="button" class="btn btn-sm btn-primary pk-sel" data-g="${gi}">إضافة المحدد</button> <span class="small text-muted pk-selinfo" data-g="${gi}"></span></div></div>`;
+        html += `<div class="sp-pick"><div class="sp-pick-h"><label class="form-check-label"><input type="checkbox" class="form-check-input pk-chkall" data-g="${gi}"> اختار الكل</label><span class="small text-muted pk-selinfo" data-g="${gi}"></span></div>
+          <div class="sp-grid">` + shown.map(p => `<label class="sp-c"><input type="checkbox" class="pk-chk" data-g="${gi}" data-id="${p.id}">
+            <span class="sp-c-in">${p.seq ? `<em>${p.seq}</em>` : ''}<b class="num">${fmt(p.net, 2)}</b><small class="num">${esc(p.serial)}</small><small>${p.cones} كونة · قائم ${fmt(p.gross, 2)}</small></span></label>`).join('') + `</div>
+          <button type="button" class="btn btn-primary btn-sm pk-sel mt-2" data-g="${gi}" disabled><i class="bi bi-plus-lg"></i> إضافة المحدد</button></div>`;
       }
       html += '</div>';
     });
-    $('pickList').innerHTML = html || '<div class="text-muted">مفيش كراتين متاحة' + (f ? ' بالفلتر ده' : '') + '</div>';
+    $('pickSum').innerHTML = nG ? `<span><b>${nG}</b> ${chip === 'sack' ? 'مجموعة شكاير' : 'بالتة / مجموعة'}</span><span><b>${nP}</b> كرتونة / شكارة</span><span><b class="num">${fmt(kgAll, 1)}</b> كيلو متاح</span>` : '';
+    $('pickList').innerHTML = html || `<div class="sp-empty"><i class="bi bi-inbox"></i>مفيش حاجة متاحة${f || chip !== 'all' ? ' بالفلتر ده' : ' في المخزن'}</div>`;
   }
   if ($('btnPick')) {
     $('btnPick').addEventListener('click', () => {
       if (!$('customer').value) { beep(false); msg('اختر العميل الأول', 'warning'); return; }
       $('pickPanel').classList.toggle('d-none');
+      $('btnPick').classList.toggle('active', !$('pickPanel').classList.contains('d-none'));
       if (!$('pickPanel').classList.contains('d-none')) loadStock();
     });
     $('pickReload').addEventListener('click', loadStock);
-    $('pickFilter').addEventListener('input', drawStock);
-    $('pickList').addEventListener('change', e => {
-      if (!e.target.classList.contains('pk-chk')) return;
-      const g = e.target.dataset.g, picked = [...$('pickList').querySelectorAll(`.pk-chk[data-g="${g}"]:checked`)].map(c => Number(c.dataset.id));
+    $('pickFilter').addEventListener('input', () => drawStock());
+    $('pickChips').addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b) return;
+      chip = b.dataset.f;
+      $('pickChips').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+      $('pickList').scrollTop = 0;
+      drawStock(true);
+    });
+    const selInfo = g => {
+      const picked = [...$('pickList').querySelectorAll(`.pk-chk[data-g="${g}"]:checked`)].map(c => Number(c.dataset.id));
       const sel = stock[g].packages.filter(p => picked.includes(p.id));
-      $('pickList').querySelector(`.pk-selinfo[data-g="${g}"]`).textContent = sel.length ? `${sel.length} كرتونة — ${fmt(sel.reduce((s, p) => s + p.net, 0), 2)} كيلو` : '';
+      $('pickList').querySelector(`.pk-selinfo[data-g="${g}"]`).textContent = sel.length ? `${sel.length} ${unit(stock[g])} — ${fmt(sel.reduce((s, p) => s + p.net, 0), 2)} كيلو` : '';
+      const btn = $('pickList').querySelector(`.pk-sel[data-g="${g}"]`); if (btn) btn.disabled = !sel.length;
+    };
+    $('pickList').addEventListener('change', e => {
+      const g = e.target.dataset.g;
+      if (e.target.classList.contains('pk-chkall')) $('pickList').querySelectorAll(`.pk-chk[data-g="${g}"]`).forEach(c => { c.checked = e.target.checked; });
+      if (e.target.classList.contains('pk-chk') || e.target.classList.contains('pk-chkall')) selInfo(g);
     });
     $('pickList').addEventListener('click', async e => {
       const b = e.target.closest('button'); if (!b) return;
       const gi = Number(b.dataset.g);
       if (b.classList.contains('pk-toggle')) { open.has(gi) ? open.delete(gi) : open.add(gi); drawStock(); return; }
       let list = null;
-      if (b.classList.contains('pk-all')) list = stock[gi].packages;
+      if (b.classList.contains('pk-all')) list = stock[gi].packages.filter(p => !pkgs.has(p.id));
       if (b.classList.contains('pk-sel')) {
         const ids = [...$('pickList').querySelectorAll(`.pk-chk[data-g="${gi}"]:checked`)].map(c => Number(c.dataset.id));
         list = stock[gi].packages.filter(p => ids.includes(p.id));
       }
       if (!list || !list.length) return;
+      b.disabled = true;
+      const card = b.closest('.sp-card');
       const r = await addPackages(list, stock[gi].pallet);
       beep(true);
-      msg(`<i class="bi bi-boxes"></i> ضفت <b>${r.added}</b> كرتونة (<b class="num">${fmt(r.sum, 2)}</b> كيلو) — إجمالي الفاتورة دلوقتي <b>${pkgs.size}</b> كرتونة`, 'success');
+      msg(`<i class="bi bi-boxes"></i> ضفت <b>${r.added}</b> ${unit(stock[gi])} (<b class="num">${fmt(r.sum, 2)}</b> كيلو)${stock[gi].pallet ? ' من بالتة <b dir="ltr">' + esc(stock[gi].pallet) + '</b>' : ''} — إجمالي الفاتورة دلوقتي <b>${pkgs.size}</b>`, 'success');
+      if (card) { card.classList.add('added'); await new Promise(res => setTimeout(res, 450)); }
       drawStock();
     });
   }

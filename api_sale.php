@@ -36,16 +36,27 @@ try {
                 'net' => (float)$p['net'], 'cones' => (int)$p['cones_count'], 'sold_price' => isset($p['sold_price']) ? (float)$p['sold_price'] : null,
             ]]);
         case 'stock_list':
-            // everything in stock, grouped by pallet (loose cartons last) — for picking without scanning
-            $rows = q("SELECT p.id, p.serial, p.pallet_id, p.pallet_seq, p.finished_item_id, p.net, p.cones_count, i.code, i.name, pl.serial AS pallet_serial, pl.capacity
+            // everything in stock, grouped by pallet (loose cartons last, one group per count / packing / type) — for picking without scanning.
+            // Each group says exactly what it is: count, spec, grade, lot, carton or sack, نظامي or متعدد, cones, produced dates.
+            $rows = q("SELECT p.id, p.serial, p.pallet_id, p.pallet_seq, p.finished_item_id, p.net, p.gross, p.cones_count, p.is_mixed, p.created_at,
+                              i.code, i.name, i.spec, i.grade, i.lot_no, pl.serial AS pallet_serial, pl.capacity, pl.full,
+                              (pi.name LIKE '%شكار%') AS sack, c.name AS cone
                        FROM packages p JOIN items i ON i.id=p.finished_item_id LEFT JOIN pallets pl ON pl.id=p.pallet_id
+                       LEFT JOIN items pi ON pi.id=p.pack_item_id LEFT JOIN items c ON c.id=p.cone_item_id
                        WHERE p.status='in_stock' ORDER BY (p.pallet_id IS NULL), pl.serial, p.pallet_seq, p.serial")->fetchAll();
             $groups = [];
             foreach ($rows as $r) {
-                $k = $r['pallet_id'] ?: 0;
-                $groups[$k] ??= ['pallet' => $r['pallet_serial'], 'capacity' => (int)$r['capacity'], 'code' => $r['code'], 'name' => $r['name'], 'packages' => []];
-                $groups[$k]['packages'][] = ['id' => (int)$r['id'], 'serial' => $r['serial'], 'seq' => $r['pallet_seq'] ? (int)$r['pallet_seq'] : null,
-                    'item_id' => (int)$r['finished_item_id'], 'code' => $r['code'], 'name' => $r['name'], 'net' => (float)$r['net'], 'cones' => (int)$r['cones_count'], 'sold_price' => null];
+                $k = $r['pallet_id'] ? 'P' . $r['pallet_id'] : 'L' . $r['finished_item_id'] . ':' . (int)$r['sack'] . ':' . (int)$r['is_mixed'];
+                $groups[$k] ??= ['pallet' => $r['pallet_serial'], 'capacity' => (int)$r['capacity'], 'full' => (int)$r['full'], 'code' => $r['code'], 'name' => $r['name'],
+                    'spec' => (string)$r['spec'], 'grade' => (string)$r['grade'], 'lot' => (string)$r['lot_no'], 'cone' => (string)$r['cone'],
+                    'sack' => (int)$r['sack'], 'mixed' => (int)$r['is_mixed'], 'from' => $r['created_at'], 'to' => $r['created_at'], 'packages' => []];
+                $g = &$groups[$k];
+                if ($r['created_at'] < $g['from']) $g['from'] = $r['created_at'];
+                if ($r['created_at'] > $g['to']) $g['to'] = $r['created_at'];
+                $g['packages'][] = ['id' => (int)$r['id'], 'serial' => $r['serial'], 'seq' => $r['pallet_seq'] ? (int)$r['pallet_seq'] : null,
+                    'item_id' => (int)$r['finished_item_id'], 'code' => $r['code'], 'name' => $r['name'], 'net' => (float)$r['net'], 'gross' => (float)$r['gross'],
+                    'cones' => (int)$r['cones_count'], 'sold_price' => null];
+                unset($g);
             }
             out(['ok' => true, 'groups' => array_values($groups)]);
         case 'balance':
